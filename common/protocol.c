@@ -72,3 +72,34 @@ ProtoResult_t Protocol_DecodeTLV(const uint8_t *inBuf, uint16_t inLen,
     *outConsumed = (uint16_t)(3u + valueLen);
     return PROTO_OK;
 }
+
+ProtoResult_t Protocol_FindField(const uint8_t *buf, uint16_t len, uint8_t tag,
+                                  const uint8_t **outValue, uint16_t *outValueLen)
+{
+    uint16_t offset = 0u;
+
+    while (offset < len) {
+        uint8_t curTag;
+        const uint8_t *curValue;
+        uint16_t curValueLen;
+        uint16_t consumed;
+        ProtoResult_t r = Protocol_DecodeTLV(buf + offset, (uint16_t)(len - offset),
+                                              &curTag, &curValue, &curValueLen, &consumed);
+
+        if (r != PROTO_OK) {
+            /* the whole buffer is already in hand, so "incomplete" here really means
+             * a field's declared length runs past the end of buf — i.e. malformed */
+            return PROTO_ERR_MALFORMED;
+        }
+
+        if (curTag == tag) {
+            *outValue = curValue;
+            *outValueLen = curValueLen;
+            return PROTO_OK;
+        }
+
+        offset = (uint16_t)(offset + consumed);
+    }
+
+    return PROTO_ERR_NOT_FOUND;
+}

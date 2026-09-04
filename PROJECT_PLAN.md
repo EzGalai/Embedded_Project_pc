@@ -107,7 +107,9 @@ graph TD
 └────────────────┴───────────────┴───────────────────────┘
 ```
 
-TLVs can nest — a top-level message tag's Value is itself a sequence of field TLVs (e.g. `KEEP_ALIVE`'s value contains a `TIMESTAMP` TLV, a `MEASUREMENT_RECORD` TLV, and a `MODE` TLV back to back).
+TLVs can nest — a top-level message tag's Value is itself a sequence of field TLVs (e.g. `KEEP_ALIVE`'s value contains a `TIMESTAMP` TLV, a `MEASUREMENT_RECORD` TLV, and a `MODE` TLV back to back). Nesting is capped at 2 levels: a message tag's Value is a sequence of field TLVs, and the only field allowed to nest further is `MEASUREMENT_RECORD` — every other field is a leaf. This keeps decoding non-recursive and bounded, which matters for FreeRTOS task stack usage on the LNC.
+
+Module code never hand-loops over a value's bytes to pull out the field it wants — the shared codec (`common/protocol.h`) provides `Protocol_FindField(buf, len, tag, ...)`, a single-level scan that returns the one field a caller asks for by tag, independent of what order fields actually arrived in. To reach a field inside `MEASUREMENT_RECORD`, a caller calls `Protocol_FindField` once for `MEASUREMENT_RECORD` itself, then again on that returned sub-buffer — nesting is handled by the caller making two calls, not by the codec recursing internally.
 
 ### 3.2 Frame Envelope (physical-link framing)
 

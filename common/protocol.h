@@ -130,7 +130,8 @@ typedef enum {
     PROTO_OK = 0,
     PROTO_ERR_BUFFER_TOO_SMALL,  /* not enough room in the output buffer */
     PROTO_ERR_INCOMPLETE,        /* not enough input bytes yet — wait for more */
-    PROTO_ERR_MALFORMED          /* input is structurally invalid (reserved for the frame layer) */
+    PROTO_ERR_MALFORMED,         /* input is structurally invalid */
+    PROTO_ERR_NOT_FOUND          /* Protocol_FindField scanned everything, tag wasn't present */
 } ProtoResult_t;
 
 #ifdef __cplusplus
@@ -218,6 +219,26 @@ ProtoResult_t Protocol_EncodeTLV(uint8_t tag, const uint8_t *value, uint16_t val
 ProtoResult_t Protocol_DecodeTLV(const uint8_t *inBuf, uint16_t inLen,
                                   uint8_t *outTag, const uint8_t **outValue,
                                   uint16_t *outValueLen, uint16_t *outConsumed);
+
+/**
+ * @brief Scan a flat sequence of sibling TLVs for the one with a specific tag.
+ *
+ * Scans exactly one level — does not recurse into nested compound fields
+ * (e.g. PROTO_FIELD_MEASUREMENT_RECORD). To read a field inside a nested
+ * compound field, call this once to get that field's value, then call it
+ * again on that sub-buffer.
+ *
+ * @param buf         Buffer containing a sequence of sibling TLVs (e.g. a message's Value).
+ * @param len         Bytes available in buf.
+ * @param tag         Tag to search for.
+ * @param outValue    Set to point into buf at the matching field's value (no copy) on success.
+ * @param outValueLen Set to the matching field's value length on success.
+ * @return PROTO_OK if found; PROTO_ERR_NOT_FOUND if the scan completes without a match;
+ *         PROTO_ERR_MALFORMED if buf doesn't contain a well-formed TLV sequence (e.g. a
+ *         field's declared length runs past the end of buf).
+ */
+ProtoResult_t Protocol_FindField(const uint8_t *buf, uint16_t len, uint8_t tag,
+                                  const uint8_t **outValue, uint16_t *outValueLen);
 
 #ifdef __cplusplus
 }
