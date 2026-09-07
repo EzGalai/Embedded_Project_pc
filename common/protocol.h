@@ -7,9 +7,8 @@
  * reimplemented independently on either side.
  *
  * Source of truth: PROJECT_PLAN.md §3 (Protocol — TLV over a Framed Link).
- * This file currently covers §3.3–3.6 (TLV tag/field/status constants only).
- * Frame envelope constants (§3.2) and encode/decode function prototypes are
- * added in a later pass.
+ * Covers §3.1 (TLV codec), §3.2 (frame envelope), and §3.3–3.6 (tag/field/
+ * status constants).
  */
 
 #ifndef PROTOCOL_H
@@ -117,6 +116,19 @@ typedef enum {
     PROTO_EVENT_SOURCE_CONFIGURATION    = 0x02,
     PROTO_EVENT_SOURCE_INIT             = 0x03
 } ProtoEventSource_t;
+
+/* ------------------------------------------------------------------------
+ * 3.2 — Frame envelope (physical-link framing)
+ * ------------------------------------------------------------------------
+ * Wraps a TLV payload for transmission over a raw byte stream (UART) that
+ * has no inherent message boundaries: [START][LENGTH(2B)][payload][CRC16(2B)],
+ * with byte-stuffing applied to everything after START. Not used on the
+ * local TCP link between lnc_bridge and Central Computer core — that link
+ * is already reliable and uses a simpler length-prefix instead (§4.12).
+ */
+#define PROTO_FRAME_START       0x7Eu
+#define PROTO_FRAME_ESCAPE      0x7Du
+#define PROTO_FRAME_ESCAPE_XOR  0x20u
 
 /* ------------------------------------------------------------------------
  * Codec result codes
@@ -239,6 +251,64 @@ ProtoResult_t Protocol_DecodeTLV(const uint8_t *inBuf, uint16_t inLen,
  */
 ProtoResult_t Protocol_FindField(const uint8_t *buf, uint16_t len, uint8_t tag,
                                   const uint8_t **outValue, uint16_t *outValueLen);
+
+/* ------------------------------------------------------------------------
+ * Frame envelope encode/decode (§3.2)
+ * ------------------------------------------------------------------------
+ */
+
+/**
+ * @brief Compute CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, no reflection, no final XOR).
+ * @param data Buffer to checksum.
+ * @param len  Number of bytes in data.
+ * @return The computed 16-bit CRC.
+ */
+uint16_t Protocol_Crc16(const uint8_t *data, uint16_t len);
+
+/**
+ * @brief Wrap a TLV payload in the §3.2 frame envelope: START, length, the
+ * payload itself, and a CRC — with byte-stuffing applied to everything
+ * after START, so a literal 0x7E/0x7D in the data can never be mistaken
+ * for a frame boundary.
+ * @param payload    TLV payload to wrap (already TLV-encoded bytes).
+ * @param payloadLen Length of payload.
+ * @param outBuf     Destination buffer for the framed bytes.
+ * @param outBufCap  Capacity of outBuf, in bytes.
+ * @param outWritten Set to the total framed bytes written on success.
+ * @return PROTO_OK on success, PROTO_ERR_BUFFER_TOO_SMALL if outBufCap isn't
+ *         large enough for the framed (and possibly stuffed) result.
+ */
+ProtoResult_t Frame_Encode(const uint8_t *payload, uint16_t payloadLen,
+                            uint8_t *outBuf, uint16_t outBufCap, uint16_t *outWritten);
+
+/**
+ * @brief Parse one frame out of a raw byte-stream buffer, undoing byte-stuffing
+ * and verifying its CRC, per §3.7's byte-stream parsing strategy.
+ *
+ * Scans inBuf for a START byte; bytes before it are treated as noise and are
+ * included in *outConsumed so the caller discards them along with the frame.
+ *
+ * @param inBuf         Buffer of raw (possibly stuffed) bytes read from the link.
+ * @param inLen         Bytes available in inBuf.
+ * @param outPayload    Destination for the de-stuffed TLV payload.
+ * @param outPayloadCap Capacity of outPayload, in bytes.
+ * @param outPayloadLen Set to the payload length on success.
+ * @param outConsumed   Set to the number of raw bytes (from the start of inBuf
+ *                       through the end of this frame) the caller should
+ *                       remove from their stream buffer. Set on both
+ *                       PROTO_OK and PROTO_ERR_MALFORMED, not on
+ *                       PROTO_ERR_INCOMPLETE (nothing is consumed yet) or
+ *                       PROTO_ERR_BUFFER_TOO_SMALL.
+ * @return PROTO_OK on success. PROTO_ERR_INCOMPLETE if inBuf doesn't yet
+ *         contain a full frame — the caller should wait for more bytes and
+ *         retry. PROTO_ERR_MALFORMED if a complete frame was found but its
+ *         CRC didn't match — the caller should discard *outConsumed bytes
+ *         and resync on the next START. PROTO_ERR_BUFFER_TOO_SMALL if the
+ *         frame's payload is larger than outPayloadCap.
+ */
+ProtoResult_t Frame_Decode(const uint8_t *inBuf, uint16_t inLen,
+                            uint8_t *outPayload, uint16_t outPayloadCap,
+                            uint16_t *outPayloadLen, uint16_t *outConsumed);
 
 #ifdef __cplusplus
 }
