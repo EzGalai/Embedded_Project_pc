@@ -1,0 +1,33 @@
+# Build artifacts — compiled by the Makefiles in common/ and pc_side/*/,
+# never hand-edited, always regenerable with `make`.
+
+# Object files (any directory)
+*.o
+
+# lnc_bridge binaries (pc_side/lnc_bridge/)
+pc_side/lnc_bridge/lnc_bridge
+pc_side/lnc_bridge/stub_core_client
+
+# Leftover ad-hoc build outputs from before the Makefile existed (each
+# manual gcc/g++ invocation during Phases 2-4 was given a different
+# output name by hand)
+pc_side/lnc_bridge/phase2_test
+pc_side/lnc_bridge/phase3_test
+pc_side/lnc_bridge/phase4_test
+
+# Any compiled test binary whose name starts or ends with "test"
+# (e.g. common/test_protocol, common/test_transport) — covers this
+# project's test-binary naming convention generally, so future phases'
+# test binaries are ignored automatically without needing a new line here.
+test*
+*test
+
+# ...except the .c source files those test binaries are built from, which
+# are tracked source, not build output. Add a line here for any future
+# test source file whose name happens to match the patterns above.
+!common/test_protocol.c
+!common/test_transport.c
+
+# Add future phases' non-test binaries here as they're built (central_computer,
+# ground_station, oop_fleet, etc.) rather than a broad extensionless-file
+# pattern, to avoid accidentally ignoring something that should be tracked.
