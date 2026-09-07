@@ -1,49 +1,79 @@
+/**
+ * @file main.cpp
+ * @brief lnc_bridge — standalone gateway process bridging the LNC's UART link
+ * to the TCP link that central_computer core connects to (Phase 6, PROJECT_PLAN.md §4.11-4.13).
+ *
+ * Owns two independent byte streams and shuttles payloads between them:
+ *   Uplink (LNC -> core):   Transport_Recv (UART) -> Frame_Decode -> BridgeServer_Send (TCP)
+ *   Downlink (core -> LNC): BridgeServer_TryRecv (TCP) -> Frame_Encode -> Transport_Send (UART)
+ *
+ * Never parses a TLV tag or knows what a Management Command is — purely a
+ * framer/deframer and forwarder, per §4.11.
+ */
+
 #include "transport.h"
 #include "protocol.h"
+#include "bridge_server.h"
+
 #include <cstdio>
 #include <cstring>
 #include <unistd.h>
+
+#define BRIDGE_TCP_PORT 5100
 
 int main()
 {
     Transport_Init();
 
-    const uint8_t payload[] = "PHASE4FRAME";
-    uint16_t payloadLen = (uint16_t)(sizeof(payload) - 1);
-
-    uint8_t framed[64];
-    uint16_t framedLen;
-    if (Frame_Encode(payload, payloadLen, framed, sizeof(framed), &framedLen) != PROTO_OK) {
-        std::printf("Frame_Encode failed\n");
+    if (!BridgeServer_Init(BRIDGE_TCP_PORT)) {
+        fprintf(stderr, "lnc_bridge: failed to start TCP server on port %d\n", BRIDGE_TCP_PORT);
         return 1;
     }
+    printf("lnc_bridge: listening on 127.0.0.1:%d, waiting for central_computer core...\n", BRIDGE_TCP_PORT);
 
-    Transport_Send(framed, framedLen);
-    std::printf("Sent framed payload: %s\n", payload);
+    uint8_t uartRxBuf[256];
+    uint16_t uartRxLen = 0;
 
-    usleep(200000);
+    for (;;) {
+        BridgeServer_Accept(); /* no-op if already connected or nobody waiting */
 
-    uint8_t rxBuf[128] = {0};
-    size_t total = 0;
-    for (int i = 0; i < 10; ++i) {
-        total += Transport_Recv(rxBuf + total, (uint16_t)(sizeof(rxBuf) - total));
-        usleep(50000);
+        /* ---- Uplink: LNC -> core ---- */
+        uint16_t n = Transport_Recv(uartRxBuf + uartRxLen, (uint16_t)(sizeof(uartRxBuf) - uartRxLen));
+        uartRxLen = (uint16_t)(uartRxLen + n);
+
+        if (uartRxLen > 0) {
+            uint8_t payload[256];
+            uint16_t payloadLen, consumed;
+            ProtoResult_t r = Frame_Decode(uartRxBuf, uartRxLen, payload, sizeof(payload), &payloadLen, &consumed);
+
+            if (r == PROTO_OK) {
+                printf("lnc_bridge: uplink — forwarding %u byte payload to core\n", payloadLen);
+                BridgeServer_Send(payload, payloadLen);
+                memmove(uartRxBuf, uartRxBuf + consumed, (size_t)(uartRxLen - consumed));
+                uartRxLen = (uint16_t)(uartRxLen - consumed);
+            } else if (r == PROTO_ERR_MALFORMED) {
+                memmove(uartRxBuf, uartRxBuf + consumed, (size_t)(uartRxLen - consumed));
+                uartRxLen = (uint16_t)(uartRxLen - consumed);
+            } else if (r == PROTO_ERR_BUFFER_TOO_SMALL) {
+                uartRxLen = 0; /* frame too large to recover — drop and resync on the next START */
+            }
+            /* PROTO_ERR_INCOMPLETE: leave uartRxBuf as-is, wait for more bytes next iteration */
+        }
+
+        /* ---- Downlink: core -> LNC ---- */
+        uint8_t tcpPayload[256];
+        uint16_t tcpPayloadLen = BridgeServer_TryRecv(tcpPayload, sizeof(tcpPayload));
+        if (tcpPayloadLen > 0) {
+            printf("lnc_bridge: downlink — forwarding %u byte payload to LNC\n", tcpPayloadLen);
+            uint8_t framed[600]; /* worst-case byte-stuffed size for a 256-byte payload */
+            uint16_t framedLen;
+            Frame_Encode(tcpPayload, tcpPayloadLen, framed, sizeof(framed), &framedLen);
+            Transport_Send(framed, framedLen);
+        }
+
+        usleep(10000); /* 10ms poll interval */
     }
-    std::printf("Received %zu raw bytes\n", total);
 
-    uint8_t decoded[64];
-    uint16_t decodedLen, consumed;
-    ProtoResult_t r = Frame_Decode(rxBuf, (uint16_t)total, decoded, sizeof(decoded), &decodedLen, &consumed);
-
-    bool match = false;
-    if (r == PROTO_OK) {
-        decoded[decodedLen] = '\0';
-        std::printf("Decoded payload: %s\n", decoded);
-        match = (decodedLen == payloadLen) && (std::memcmp(decoded, payload, payloadLen) == 0);
-    } else {
-        std::printf("Frame_Decode failed with result %d\n", (int)r);
-    }
-
-    std::printf("Phase 4 test: %s\n", match ? "PASSED" : "FAILED");
-    return match ? 0 : 1;
+    BridgeServer_Close();
+    return 0;
 }

@@ -135,7 +135,7 @@ typedef enum {
  * ------------------------------------------------------------------------
  * Local "did this C call succeed" signaling for the functions below.
  * Distinct from ProtoStatus_t on purpose: ProtoStatus_t is an application-
- * level wire value that travels inside a CONFIG_ACK/*_RESP message; this
+ * level wire value that travels inside a CONFIG_ACK_RESP message; this
  * enum never crosses the wire, it only reports on the codec call itself.
  */
 typedef enum {
