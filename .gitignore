@@ -28,6 +28,9 @@ test*
 !common/test_protocol.c
 !common/test_transport.c
 
-# Add future phases' non-test binaries here as they're built (central_computer,
-# ground_station, oop_fleet, etc.) rather than a broad extensionless-file
-# pattern, to avoid accidentally ignoring something that should be tracked.
+# central_computer binary (pc_side/central_computer/)
+pc_side/central_computer/central_computer
+
+# Add future phases' non-test binaries here as they're built (ground_station,
+# oop_fleet, etc.) rather than a broad extensionless-file pattern, to avoid
+# accidentally ignoring something that should be tracked.

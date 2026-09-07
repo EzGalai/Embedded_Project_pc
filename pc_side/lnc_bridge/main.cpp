@@ -47,7 +47,11 @@ int main()
             ProtoResult_t r = Frame_Decode(uartRxBuf, uartRxLen, payload, sizeof(payload), &payloadLen, &consumed);
 
             if (r == PROTO_OK) {
-                printf("lnc_bridge: uplink — forwarding %u byte payload to core\n", payloadLen);
+                if (BridgeServer_IsConnected()) {
+                    printf("lnc_bridge: uplink — forwarding %u byte payload to core\n", payloadLen);
+                } else {
+                    printf("lnc_bridge: uplink — no core connected, dropping %u byte payload\n", payloadLen);
+                }
                 BridgeServer_Send(payload, payloadLen);
                 memmove(uartRxBuf, uartRxBuf + consumed, (size_t)(uartRxLen - consumed));
                 uartRxLen = (uint16_t)(uartRxLen - consumed);
