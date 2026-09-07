@@ -324,22 +324,22 @@ static void test_frame_decode_incomplete(void)
     printf("PASS: Frame_Decode incomplete-buffer detection\n");
 }
 
-//int main(void)
-//{
-//    test_u16_roundtrip();
-//    test_u32_roundtrip();
-//    test_tlv_roundtrip_empty();
-//    test_tlv_roundtrip_small_value();
-//    test_decode_incomplete();
-//    test_encode_buffer_too_small();
-//    test_find_field();
-//    test_find_field_nested();
-//    test_find_field_malformed();
-//    test_frame_roundtrip_no_stuffing();
-//    test_frame_roundtrip_with_stuffing();
-//    test_frame_decode_malformed_crc();
-//    test_frame_decode_incomplete();
-//
-//    printf("\nAll protocol.c tests passed.\n");
-//    return 0;
-//}
+int main(void)
+{
+    test_u16_roundtrip();
+    test_u32_roundtrip();
+    test_tlv_roundtrip_empty();
+    test_tlv_roundtrip_small_value();
+    test_decode_incomplete();
+    test_encode_buffer_too_small();
+    test_find_field();
+    test_find_field_nested();
+    test_find_field_malformed();
+    test_frame_roundtrip_no_stuffing();
+    test_frame_roundtrip_with_stuffing();
+    test_frame_decode_malformed_crc();
+    test_frame_decode_incomplete();
+
+    printf("\nAll protocol.c tests passed.\n");
+    return 0;
+}
