@@ -14,6 +14,9 @@
 #include <netinet/in.h>
 
 #define BRIDGE_TCP_PORT 5100
+#define GS_TCP_PORT 9000
+#define GS_HANDSHAKE_GREETING "GS_HELLO"
+#define GS_HANDSHAKE_REPLY    "CC_HELLO_ACK"
 
 static int CcCore_LncConnect(void)
 {
@@ -215,49 +218,139 @@ static bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus)
     return true;
 }
 
+
+/**
+ * @brief Listens for and serves one Ground Station connection: accepts a
+ * client, reads its length-prefixed greeting, and replies with a fixed
+ * length-prefixed acknowledgment. Blocking, single connection — this phase
+ * proves the link mechanics only, not concurrent operation alongside the
+ * LNC-facing link (PROJECT_PLAN.md §6 Phase 9).
+ * @param port Port to listen on.
+ * @return true if a client connected and sent the expected greeting.
+ */
+static bool CC_GsLink_Listen(uint16_t port)
+{
+    int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenFd < 0) {
+        fprintf(stderr, "central_computer: GS listen socket() failed: %s\n", strerror(errno));
+        return false;
+    }
+
+    int reuse = 1;
+    setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY); /* GS is a different machine in general, unlike the loopback-only lnc_bridge link */
+    addr.sin_port = htons(port);
+
+    if (bind(listenFd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+        fprintf(stderr, "central_computer: GS listen bind() failed on port %u: %s\n", port, strerror(errno));
+        close(listenFd);
+        return false;
+    }
+
+    if (listen(listenFd, 1) < 0) {
+        fprintf(stderr, "central_computer: GS listen() failed: %s\n", strerror(errno));
+        close(listenFd);
+        return false;
+    }
+
+    printf("central_computer: GS link listening on port %u, waiting for Ground Station...\n", port);
+
+    int clientFd = accept(listenFd, nullptr, nullptr);
+    if (clientFd < 0) {
+        fprintf(stderr, "central_computer: GS accept() failed: %s\n", strerror(errno));
+        close(listenFd);
+        return false;
+    }
+    printf("central_computer: Ground Station connected\n");
+
+    uint8_t prefix[4];
+    if (recv(clientFd, prefix, sizeof(prefix), MSG_WAITALL) != sizeof(prefix)) {
+        fprintf(stderr, "central_computer: GS handshake — failed to read greeting length\n");
+        close(clientFd);
+        close(listenFd);
+        return false;
+    }
+    uint32_t greetingLen;
+    Protocol_GetU32(prefix, &greetingLen);
+
+    char greeting[64] = {0};
+    if (greetingLen >= sizeof(greeting) || recv(clientFd, greeting, greetingLen, MSG_WAITALL) != (ssize_t)greetingLen) {
+        fprintf(stderr, "central_computer: GS handshake — failed to read greeting\n");
+        close(clientFd);
+        close(listenFd);
+        return false;
+    }
+    printf("central_computer: received GS greeting: %s\n", greeting);
+
+    bool greetingOk = (strcmp(greeting, GS_HANDSHAKE_GREETING) == 0);
+
+    const char *reply = GS_HANDSHAKE_REPLY;
+    uint16_t replyLen = (uint16_t)strlen(reply);
+    Protocol_PutU32(prefix, replyLen);
+    send(clientFd, prefix, sizeof(prefix), 0);
+    send(clientFd, reply, replyLen, 0);
+
+    close(clientFd);
+    close(listenFd);
+
+    return greetingOk;
+}
+
 int main()
 {
     int fd = CcCore_LncConnect();
-    if (fd < 0) {
-        return 1;
-    }
-    printf("central_computer: connected to lnc_bridge on 127.0.0.1:%d\n", BRIDGE_TCP_PORT);
+    bool lncConnected = (fd >= 0);
 
-    /* --- Phase 8: Get/Set time round-trip test --- */
-    uint32_t initialTime = 0;
-    bool ok = CcCore_GetTime(fd, &initialTime);
-    if (ok) printf("central_computer: initial LNC time = %u\n", (unsigned)initialTime);
+    if (lncConnected) {
+        printf("central_computer: connected to lnc_bridge on 127.0.0.1:%d\n", BRIDGE_TCP_PORT);
 
-    uint32_t newTime = initialTime + 1000;
-    ProtoStatus_t setStatus = PROTO_STATUS_INTERNAL_ERROR;
-    if (ok) {
-        ok = CcCore_SetRtc(fd, newTime, &setStatus) && (setStatus == PROTO_STATUS_SUCCESS);
-        if (ok) printf("central_computer: SET_RTC_REQ acknowledged, status=SUCCESS\n");
-    }
+        /* --- Phase 8: Get/Set time round-trip test --- */
+        uint32_t initialTime = 0;
+        bool ok = CcCore_GetTime(fd, &initialTime);
+        if (ok) printf("central_computer: initial LNC time = %u\n", (unsigned)initialTime);
 
-    uint32_t confirmedTime = 0;
-    if (ok) {
-        ok = CcCore_GetTime(fd, &confirmedTime);
-        if (ok) printf("central_computer: LNC time after set = %u\n", (unsigned)confirmedTime);
-    }
-
-    bool match = ok && (confirmedTime == newTime);
-    printf("Phase 8 test: %s\n", match ? "PASSED" : "FAILED");
-
-    /* --- Phase 7 behavior continues: print any further KEEP_ALIVEs forever --- */
-    for (;;) {
-        uint8_t storage[256];
-        uint8_t tag;
-        const uint8_t *value;
-        uint16_t valueLen;
-
-        if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
-            fprintf(stderr, "central_computer: lnc_bridge disconnected\n");
-            break;
+        uint32_t newTime = initialTime + 1000;
+        ProtoStatus_t setStatus = PROTO_STATUS_INTERNAL_ERROR;
+        if (ok) {
+            ok = CcCore_SetRtc(fd, newTime, &setStatus) && (setStatus == PROTO_STATUS_SUCCESS);
+            if (ok) printf("central_computer: SET_RTC_REQ acknowledged, status=SUCCESS\n");
         }
-        printf("central_computer: received unhandled tag 0x%02X\n", tag);
+
+        uint32_t confirmedTime = 0;
+        if (ok) {
+            ok = CcCore_GetTime(fd, &confirmedTime);
+            if (ok) printf("central_computer: LNC time after set = %u\n", (unsigned)confirmedTime);
+        }
+
+        bool match = ok && (confirmedTime == newTime);
+        printf("Phase 8 test: %s\n", match ? "PASSED" : "FAILED");
+    } else {
+        printf("central_computer: no lnc_bridge connection — continuing without the LNC link\n");
     }
 
-    close(fd);
+    /* --- Phase 9: Ground Station link test (independent of the LNC link) --- */
+    bool gsOk = CC_GsLink_Listen(GS_TCP_PORT);
+    printf("Phase 9 test: %s\n", gsOk ? "PASSED" : "FAILED");
+
+    if (lncConnected) {
+        /* --- Phase 7 behavior continues: print any further KEEP_ALIVEs forever --- */
+        for (;;) {
+            uint8_t storage[256];
+            uint8_t tag;
+            const uint8_t *value;
+            uint16_t valueLen;
+
+            if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+                fprintf(stderr, "central_computer: lnc_bridge disconnected\n");
+                break;
+            }
+            printf("central_computer: received unhandled tag 0x%02X\n", tag);
+        }
+        close(fd);
+    }
+
     return 0;
 }

@@ -31,6 +31,9 @@ test*
 # central_computer binary (pc_side/central_computer/)
 pc_side/central_computer/central_computer
 
-# Add future phases' non-test binaries here as they're built (ground_station,
-# oop_fleet, etc.) rather than a broad extensionless-file pattern, to avoid
+# ground_station binary (pc_side/ground_station/)
+pc_side/ground_station/ground_station
+
+# Add future phases' non-test binaries here as they're built (oop_fleet,
+# etc.) rather than a broad extensionless-file pattern, to avoid
 # accidentally ignoring something that should be tracked.
