@@ -1,15 +1,7 @@
 /**
  * @file main.cpp
- * @brief central_computer core — Phase 7: connects to lnc_bridge over the
- * TCP bridge link and prints incoming KEEP_ALIVE messages (PROJECT_PLAN.md
- * §5.1, §6 Phase 7). First real central_computer code — replaces Phase 6's
- * one-shot stub_core_client test with a long-running connection that
- * actually decodes protocol messages.
- *
- * Blocking sockets throughout: nothing else for this process to do yet while
- * waiting for the next message, so lnc_bridge's non-blocking multiplexing
- * isn't needed here (that resurfaces once this process also serves the
- * Ground Station link, in a later phase).
+ * @brief central_computer core — Phase 7 (KEEP_ALIVE) + Phase 8 (Get/Set
+ * time round-trip). See PROJECT_PLAN.md §5.1, §5.3, §6 Phase 8.
  */
 
 #include "protocol.h"
@@ -23,10 +15,6 @@
 
 #define BRIDGE_TCP_PORT 5100
 
-/**
- * @brief Connect to lnc_bridge's TCP server.
- * @return Connected socket fd, or -1 on failure (diagnostic printed to stderr).
- */
 static int CcCore_LncConnect(void)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -49,13 +37,6 @@ static int CcCore_LncConnect(void)
     return fd;
 }
 
-/**
- * @brief Block until one complete length-prefixed payload arrives from lnc_bridge.
- * @param fd Connected socket.
- * @param outBuf Destination buffer.
- * @param maxLen Capacity of outBuf.
- * @return Number of payload bytes received, or 0 on error/disconnect.
- */
 static uint16_t CcCore_LncRecv(int fd, uint8_t *outBuf, uint16_t maxLen)
 {
     uint8_t prefix[4];
@@ -79,10 +60,24 @@ static uint16_t CcCore_LncRecv(int fd, uint8_t *outBuf, uint16_t maxLen)
 }
 
 /**
- * @brief Decode a KEEP_ALIVE message's Value and print its fields.
- * @param value Pointer to KEEP_ALIVE's Value (its TLV payload, tag/length already stripped).
- * @param len Length of value.
+ * @brief TLV-encode a message and send it length-prefixed to lnc_bridge.
+ * @param fd Connected socket.
+ * @param tag Message tag.
+ * @param value Value bytes (may be nullptr if valueLen is 0).
+ * @param valueLen Length of value.
  */
+static void CcCore_LncSend(int fd, uint8_t tag, const uint8_t *value, uint16_t valueLen)
+{
+    uint8_t message[32];
+    uint16_t messageLen;
+    Protocol_EncodeTLV(tag, value, valueLen, message, sizeof(message), &messageLen);
+
+    uint8_t prefix[4];
+    Protocol_PutU32(prefix, messageLen);
+    send(fd, prefix, sizeof(prefix), 0);
+    send(fd, message, messageLen, 0);
+}
+
 static void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
 {
     const uint8_t *field;
@@ -128,6 +123,98 @@ static void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
            (unsigned)timestamp, mode, temperature / 10.0, humidity, light, battery);
 }
 
+/**
+ * @brief Reads and decodes one message from lnc_bridge, transparently printing
+ * (and skipping) any KEEP_ALIVE that arrives along the way.
+ * @param fd Connected socket.
+ * @param outTag Set to the decoded tag of the first non-KEEP_ALIVE message.
+ * @param outValue Set to point at that message's Value.
+ * @param outValueLen Set to that Value's length.
+ * @param storage Caller-provided buffer outValue points into (must outlive outValue's use).
+ * @param storageCap Capacity of storage.
+ * @return true on success, false on disconnect or malformed data.
+ */
+static bool CcCore_LncRecvMessage(int fd, uint8_t *outTag, const uint8_t **outValue, uint16_t *outValueLen,
+                                   uint8_t *storage, uint16_t storageCap)
+{
+    for (;;) {
+        uint16_t payloadLen = CcCore_LncRecv(fd, storage, storageCap);
+        if (payloadLen == 0) {
+            return false;
+        }
+
+        uint16_t consumed;
+        if (Protocol_DecodeTLV(storage, payloadLen, outTag, outValue, outValueLen, &consumed) != PROTO_OK) {
+            fprintf(stderr, "central_computer: malformed message from lnc_bridge\n");
+            continue;
+        }
+
+        if (*outTag == PROTO_TAG_KEEP_ALIVE) {
+            CcCore_PrintKeepAlive(*outValue, *outValueLen);
+            continue; /* not what we're waiting for — keep listening */
+        }
+
+        return true;
+    }
+}
+
+/**
+ * @brief Sends GET_TIME_REQ and waits for GET_TIME_RESP.
+ * @param fd Connected socket.
+ * @param outTime Set to the decoded TIMESTAMP on success.
+ * @return true on success.
+ */
+static bool CcCore_GetTime(int fd, uint32_t *outTime)
+{
+    CcCore_LncSend(fd, PROTO_TAG_GET_TIME_REQ, nullptr, 0);
+
+    uint8_t storage[256];
+    uint8_t tag;
+    const uint8_t *value;
+    uint16_t valueLen;
+
+    if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+        return false;
+    }
+    if (tag != PROTO_TAG_GET_TIME_RESP || valueLen < 4) {
+        fprintf(stderr, "central_computer: expected GET_TIME_RESP, got tag 0x%02X\n", tag);
+        return false;
+    }
+
+    Protocol_GetU32(value, outTime);
+    return true;
+}
+
+/**
+ * @brief Sends SET_RTC_REQ with newTime and waits for CONFIG_ACK.
+ * @param fd Connected socket.
+ * @param newTime Timestamp to set.
+ * @param outStatus Set to the ACK's STATUS on success.
+ * @return true on success.
+ */
+static bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus)
+{
+    uint8_t valueBuf[4];
+    Protocol_PutU32(valueBuf, newTime);
+    CcCore_LncSend(fd, PROTO_TAG_SET_RTC_REQ, valueBuf, 4);
+
+    uint8_t storage[256];
+    uint8_t tag;
+    const uint8_t *value;
+    uint16_t valueLen;
+
+    if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+        return false;
+    }
+    if (tag != PROTO_TAG_CONFIG_ACK || valueLen < 1) {
+        fprintf(stderr, "central_computer: expected CONFIG_ACK, got tag 0x%02X\n", tag);
+        return false;
+    }
+
+    *outStatus = (ProtoStatus_t)value[0];
+    return true;
+}
+
 int main()
 {
     int fd = CcCore_LncConnect();
@@ -136,27 +223,39 @@ int main()
     }
     printf("central_computer: connected to lnc_bridge on 127.0.0.1:%d\n", BRIDGE_TCP_PORT);
 
+    /* --- Phase 8: Get/Set time round-trip test --- */
+    uint32_t initialTime = 0;
+    bool ok = CcCore_GetTime(fd, &initialTime);
+    if (ok) printf("central_computer: initial LNC time = %u\n", (unsigned)initialTime);
+
+    uint32_t newTime = initialTime + 1000;
+    ProtoStatus_t setStatus = PROTO_STATUS_INTERNAL_ERROR;
+    if (ok) {
+        ok = CcCore_SetRtc(fd, newTime, &setStatus) && (setStatus == PROTO_STATUS_SUCCESS);
+        if (ok) printf("central_computer: SET_RTC_REQ acknowledged, status=SUCCESS\n");
+    }
+
+    uint32_t confirmedTime = 0;
+    if (ok) {
+        ok = CcCore_GetTime(fd, &confirmedTime);
+        if (ok) printf("central_computer: LNC time after set = %u\n", (unsigned)confirmedTime);
+    }
+
+    bool match = ok && (confirmedTime == newTime);
+    printf("Phase 8 test: %s\n", match ? "PASSED" : "FAILED");
+
+    /* --- Phase 7 behavior continues: print any further KEEP_ALIVEs forever --- */
     for (;;) {
-        uint8_t payload[256];
-        uint16_t payloadLen = CcCore_LncRecv(fd, payload, sizeof(payload));
-        if (payloadLen == 0) {
+        uint8_t storage[256];
+        uint8_t tag;
+        const uint8_t *value;
+        uint16_t valueLen;
+
+        if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
             fprintf(stderr, "central_computer: lnc_bridge disconnected\n");
             break;
         }
-
-        uint8_t tag;
-        const uint8_t *value;
-        uint16_t valueLen, consumed;
-        if (Protocol_DecodeTLV(payload, payloadLen, &tag, &value, &valueLen, &consumed) != PROTO_OK) {
-            fprintf(stderr, "central_computer: malformed message from lnc_bridge\n");
-            continue;
-        }
-
-        if (tag == PROTO_TAG_KEEP_ALIVE) {
-            CcCore_PrintKeepAlive(value, valueLen);
-        } else {
-            printf("central_computer: received unhandled tag 0x%02X\n", tag);
-        }
+        printf("central_computer: received unhandled tag 0x%02X\n", tag);
     }
 
     close(fd);
