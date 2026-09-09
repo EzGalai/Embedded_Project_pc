@@ -214,7 +214,7 @@ Both the STM32 and PC Communication modules must:
 |---|---|---|---|
 | Highest | `vWatchdogTask` | Periodic, faster than IWDG timeout | Must never starve — missing it resets the board |
 | High | `vInitTask` | Once at boot; creates all tasks, then self-deletes | Startup should finish deterministically before routine work contends for CPU |
-| High | `vObjectDetectionTask` | Sonar interrupt/peripheral | Safety-relevant — a detected object should trigger the alarm with minimal delay |
+| High | `vObjectDetectionTask` | Periodic poll, 200ms, of an activity flag set by the IR receiver's EXTI ISR | Safety-relevant — kept at High priority despite polling rather than blocking, since the real hardware (a remote-control-style IR receiver) produces transient bursts, not a level a task can block on |
 | High | `vCommRxTask` | UART RX ring buffer has data | Drain incoming commands/requests promptly |
 | Medium | `vEventTask` | Blocks on `xEventQueue` | Drives LED/alarm — quick, but not as time-critical as the tier above |
 | Medium | `vCommTxTask` | Any of 3 TX queues has data | Priority *among outbound message types* is handled by which queue it drains first, not by task priority |
@@ -251,11 +251,11 @@ Both the STM32 and PC Communication modules must:
 
 ### 4.3 Object Detection (LNC)
 
-**Task:** `vObjectDetectionTask`, blocks on sonar interrupt/peripheral.
+**Task:** `vObjectDetectionTask`, polls an activity flag every 200ms (set by the IR receiver's EXTI ISR on any edge) — not a blocking interrupt wait, since the real hardware (§10.2) produces transient bursts rather than a continuous level.
 
 | Function | Description |
 |---|---|
-| `vObjectDetectionTask` | Blocks until the sonar peripheral signals a detection-state change; posts `OBJECT_DETECTED` or `OBJECT_CLEARED` to Event. |
+| `vObjectDetectionTask` | Each 200ms poll, compares this cycle's activity against the last; on an actual change, posts `OBJECT_DETECTED` or `OBJECT_CLEARED` to Event. |
 
 ### 4.4 Event (LNC)
 
@@ -686,24 +686,24 @@ Real hardware, confirmed from the physical board: a Nucleo-64 (STM32L476RG) with
 
 ### 10.1 Core ordering principle
 
-Only **two** things in this system genuinely require a hardware timer with special capability — everything else should use the cheapest sufficient mechanism instead, to conserve the limited general-purpose (capture/PWM-capable) timers:
+Only **three** things in this system genuinely require a hardware timer with special capability — everything else should use the cheapest sufficient mechanism instead, to conserve the limited general-purpose (capture/PWM-capable) timers:
 
 1. **Buzzer PWM tone** (if the buzzer is passive) — needs a timer's PWM output.
 2. **FreeRTOS/HAL time base** — needs *a* timer, but only the simplest kind (count + interrupt, no capture/PWM), so this deliberately gets the least-capable timer type, not a general-purpose one.
+3. **DHT11's bit-banged microsecond timing** — see below.
 
-Everything else avoids claiming a `TIMx` peripheral entirely: the RGB LED is plain GPIO (fixed colors only, no dimming needed), button debounce can ride a FreeRTOS software timer instead of hardware, ADC sampling is triggered by `vMonitorTask`'s own 5s period rather than a hardware trigger, the IR receiver (object detection) is a simple digital detect/no-detect signal needing only GPIO+EXTI, and the DHT11's bit-banged timing protocol uses the Cortex-M's built-in **DWT cycle counter** for microsecond delays rather than a dedicated timer.
+Everything else avoids claiming a `TIMx` peripheral entirely: the RGB LED is plain GPIO (fixed colors only, no dimming needed), button debounce can ride a FreeRTOS software timer instead of hardware, ADC sampling is triggered by `vMonitorTask`'s own 5s period rather than a hardware trigger, and the IR receiver (object detection) uses a simple activity flag (§4.3) needing only GPIO+EXTI. The DHT11's bit-banged timing protocol was originally planned to use the Cortex-M's built-in DWT cycle counter (avoiding a dedicated timer entirely), but ended up using `TIM6` (Base mode, 1µs tick) instead — a deliberate, already-tested implementation choice (see phases_conclusions.md's Phase 10 write-up) rather than a DWT-vs-timer trade-off that mattered in practice.
 
 ### 10.2 Confirmed pin/peripheral allocation
 
 | Function | Arduino pin | STM32 pin | Peripheral | Notes |
 |---|---|---|---|---|
-| Alarm-stop button (SW1) | D2 | PA10 | GPIO + EXTI10 | |
-| SW2 | D3 | PB3 | — | not used by the spec |
-| DHT11 (humidity) | D4 | PB5 | GPIO, bit-banged | timed via DWT cycle counter, no `TIMx` needed |
-| Buzzer | D5 | PB4 | GPIO, or `TIM3_CH1` PWM if passive | |
-| IR Receiver (object detection) | D6 | PB10 | GPIO + EXTI10 | simple digital detect, confirmed — no timer needed |
+| Alarm-stop button (SW2) | D3 | PB3 | GPIO + EXTI3 | moved from SW1/PA10 — both PA10 and the IR receiver's PB10 map to the same EXTI10 hardware line, an unworkable conflict caught during Phase 11 implementation; SW2/PB3 has its own independent EXTI3 line instead |
+| DHT11 (humidity) | D4 | PB5 | GPIO, bit-banged | timed via `TIM6` (Base mode, 1µs tick) — see §10.1 |
+| Buzzer | D5 | PB4 | `TIM3_CH1` PWM | confirmed passive during Phase 10 — needs PWM, a static GPIO level is silent |
+| IR Receiver (object detection) | D6 | PB10 | GPIO + EXTI (both edges) | this module is a remote-control-style IR receiver (reacts to an actual remote pointed at it), not a continuous proximity sensor — it produces a transient burst per press, not a steady level. `vObjectDetectionTask` polls a flag every 200ms rather than blocking on the interrupt directly (see §4.3). |
 | LED1 (blue) / LED2 (red) | D13 / D12 | PA5 / PA6 | — | **not used** — spec only needs the RGB LED. These pins are now claimed by SD_SPI (SPI1_SCK/MISO, see §10.3) instead; since LED1/LED2 were never going to be used, this is a non-issue. |
-| RGB LED | *(rewired off D9–D11)* | PB1, PB2, PB11 | GPIO ×3 | bypassed via direct jumpers to the Morpho header (all on CN10) — the shield's default D9-D11 routing collides with the SD card's original SPI bus |
+| RGB LED | *(rewired off D9–D11)* | `PB1`=Red, `PB2`=Blue, `PB11`=Green | GPIO ×3 | bypassed via direct jumpers to the Morpho header (all on CN10) — the shield's default D9-D11 routing collides with the SD card's original SPI bus. Color-to-pin mapping confirmed empirically during Phase 10 — Green/Blue landed swapped from the initially assumed order. |
 | Onboard `LD2` | — | PA5 | GPIO (board default) | shares a pin with SD_SPI's SCK (§10.3) — purely cosmetic (LD2 flickers with SPI clock activity), not a functional conflict. Remove any code that manually toggles `LD2` to avoid fighting SPI1's control of the pin. |
 | Rotation pot (battery sim) | A0 | PA0 | ADC1 | |
 | Light | A1 | PA1 | ADC1 | |
