@@ -122,8 +122,10 @@ static void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
         Protocol_GetU16(field, &battery);
     }
 
-    printf("KEEP_ALIVE: timestamp=%u mode=%u | temp=%.1fC humidity=%u%% light=%u battery=%umV\n",
-           (unsigned)timestamp, mode, temperature / 10.0, humidity, light, battery);
+    printf("KEEP_ALIVE: timestamp=%u mode=%u | temp=%.1fC humidity=%u%% light=%u%% battery=%u%%\n",
+       (unsigned)timestamp, mode, temperature / 10.0, humidity,
+       (unsigned)(light * 100 / 4095), (unsigned)(battery * 100 / 3300));
+
 }
 
 /**
@@ -299,6 +301,58 @@ static bool CC_GsLink_Listen(uint16_t port)
     return greetingOk;
 }
 
+static void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
+{
+    const uint8_t *field;
+    uint16_t fieldLen;
+
+    uint32_t timestamp = 0;
+    if (Protocol_FindField(value, len, PROTO_FIELD_TIMESTAMP, &field, &fieldLen) == PROTO_OK) {
+        Protocol_GetU32(field, &timestamp);
+    }
+
+    uint8_t eventType = 0, eventSource = 0;
+    if (Protocol_FindField(value, len, PROTO_FIELD_EVENT_TYPE, &field, &fieldLen) == PROTO_OK) {
+        eventType = field[0];
+    }
+    if (Protocol_FindField(value, len, PROTO_FIELD_EVENT_SOURCE, &field, &fieldLen) == PROTO_OK) {
+        eventSource = field[0];
+    }
+
+    printf("EVENT_REPORT: timestamp=%u type=%u source=%u", (unsigned)timestamp, eventType, eventSource);
+
+    const uint8_t *measurement;
+    uint16_t measurementLen;
+    if (Protocol_FindField(value, len, PROTO_FIELD_MEASUREMENT_RECORD, &measurement, &measurementLen) == PROTO_OK) {
+        int16_t temperature = 0;
+        uint8_t humidity = 0, mode = 0;
+        uint16_t light = 0, battery = 0;
+
+        if (Protocol_FindField(measurement, measurementLen, PROTO_FIELD_TEMPERATURE, &field, &fieldLen) == PROTO_OK) {
+            uint16_t raw; Protocol_GetU16(field, &raw); temperature = (int16_t)raw;
+        }
+        if (Protocol_FindField(measurement, measurementLen, PROTO_FIELD_HUMIDITY, &field, &fieldLen) == PROTO_OK) {
+            humidity = field[0];
+        }
+        if (Protocol_FindField(measurement, measurementLen, PROTO_FIELD_LIGHT, &field, &fieldLen) == PROTO_OK) {
+            Protocol_GetU16(field, &light);
+        }
+        if (Protocol_FindField(measurement, measurementLen, PROTO_FIELD_BATTERY_VOLTAGE, &field, &fieldLen) == PROTO_OK) {
+            Protocol_GetU16(field, &battery);
+        }
+        if (Protocol_FindField(measurement, measurementLen, PROTO_FIELD_MODE, &field, &fieldLen) == PROTO_OK) {
+            mode = field[0];
+        }
+
+        printf(" | temp=%.1fC humidity=%u%% light=%u%% battery=%u%% mode=%u",
+               temperature / 10.0, humidity, (unsigned)(light * 100 / 4095),
+               (unsigned)(battery * 100 / 3300), mode);
+    }
+    printf("\n");
+}
+
+
+
 int main()
 {
     int fd = CcCore_LncConnect();
@@ -347,7 +401,12 @@ int main()
                 fprintf(stderr, "central_computer: lnc_bridge disconnected\n");
                 break;
             }
-            printf("central_computer: received unhandled tag 0x%02X\n", tag);
+            if (tag == PROTO_TAG_EVENT_REPORT) {
+                CcCore_PrintEventReport(value, valueLen);
+            } else {
+                printf("central_computer: received unhandled tag 0x%02X\n", tag);
+            }
+
         }
         close(fd);
     }
