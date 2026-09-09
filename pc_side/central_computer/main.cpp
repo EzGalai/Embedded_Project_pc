@@ -220,6 +220,41 @@ static bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus)
     return true;
 }
 
+/**
+ * @brief Sends SET_BATTERY_WARNING_MIN with newMinMv and waits for CONFIG_ACK.
+ * Phase 12 test: proves a SET_* config command reaches Config_ApplyUpdate
+ * and gets acknowledged.
+ * @param fd Connected socket.
+ * @param newMinMv New battery-warning-minimum threshold, in mV.
+ * @param outStatus Set to the ACK's STATUS on success.
+ * @return true on success.
+ */
+static bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outStatus)
+{
+    uint8_t fieldBuf[2];
+    Protocol_PutU16(fieldBuf, newMinMv);
+
+    uint8_t value[8];
+    uint16_t valueLen;
+    Protocol_EncodeTLV(PROTO_FIELD_BATTERY_MIN, fieldBuf, 2, value, sizeof(value), &valueLen);
+
+    CcCore_LncSend(fd, PROTO_TAG_SET_BATTERY_WARNING_MIN, value, valueLen);
+
+    uint8_t storage[256];
+    uint8_t tag;
+    const uint8_t *respValue;
+    uint16_t respValueLen;
+    if (!CcCore_LncRecvMessage(fd, &tag, &respValue, &respValueLen, storage, sizeof(storage))) {
+        return false;
+    }
+    if (tag != PROTO_TAG_CONFIG_ACK || respValueLen < 1) {
+        fprintf(stderr, "central_computer: expected CONFIG_ACK, got tag 0x%02X\n", tag);
+        return false;
+    }
+
+    *outStatus = (ProtoStatus_t)respValue[0];
+    return true;
+}
 
 /**
  * @brief Listens for and serves one Ground Station connection: accepts a
@@ -381,7 +416,13 @@ int main()
 
         bool match = ok && (confirmedTime == newTime);
         printf("Phase 8 test: %s\n", match ? "PASSED" : "FAILED");
-    } else {
+
+        /* --- Phase 12: Config SET round-trip test --- */
+        ProtoStatus_t setConfigStatus = PROTO_STATUS_INTERNAL_ERROR;
+        bool configOk = CcCore_SetBatteryWarningMin(fd, 1500, &setConfigStatus) && (setConfigStatus == PROTO_STATUS_SUCCESS);
+        printf("Phase 12 test: SET_BATTERY_WARNING_MIN %s\n", configOk ? "PASSED" : "FAILED");
+    }
+    else {
         printf("central_computer: no lnc_bridge connection — continuing without the LNC link\n");
     }
 
