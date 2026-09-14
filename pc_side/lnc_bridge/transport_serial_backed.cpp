@@ -1,9 +1,11 @@
 #include "transport.h"
 #include "transport_serial.h"
-
+#include <cstdio>
 
 void Transport_Init(void){
-    Serial_Open("/dev/ttyACM0", 115200);
+    if (!Serial_Open("/dev/ttyACM0", 115200)) {
+        fprintf(stderr, "lnc_bridge: failed to open serial port — check `ls /dev/ttyACM*` for the current device path\n");
+    }
 }
 
 void Transport_Send(const uint8_t *data, uint16_t len){
