@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cerrno>
+#include <ctime>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -17,6 +18,23 @@
 #define GS_TCP_PORT 9000
 #define GS_HANDSHAKE_GREETING "GS_HELLO"
 #define GS_HANDSHAKE_REPLY    "CC_HELLO_ACK"
+
+/**
+ * @brief Formats a Unix timestamp (seconds since 1970-01-01 UTC) as a
+ * human-readable "YYYY-MM-DD HH:MM:SS" string, for display only — the wire
+ * protocol keeps the raw value, matching how light/battery are converted to
+ * percentages for display but kept raw on the wire.
+ * @param timestamp Seconds since the Unix epoch.
+ * @param outBuf Destination buffer.
+ * @param bufSize Capacity of outBuf.
+ */
+static void FormatUnixTime(uint32_t timestamp, char *outBuf, size_t bufSize)
+{
+    time_t t = (time_t)timestamp;
+    struct tm tmVal;
+    gmtime_r(&t, &tmVal);
+    strftime(outBuf, bufSize, "%Y-%m-%d %H:%M:%S", &tmVal);
+}
 
 static int CcCore_LncConnect(void)
 {
@@ -96,10 +114,13 @@ static void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
         mode = field[0];
     }
 
+    char timeStr[32];
+    FormatUnixTime(timestamp, timeStr, sizeof(timeStr));
+
     const uint8_t *measurement;
     uint16_t measurementLen;
     if (Protocol_FindField(value, len, PROTO_FIELD_MEASUREMENT_RECORD, &measurement, &measurementLen) != PROTO_OK) {
-        printf("KEEP_ALIVE: timestamp=%u mode=%u (no MEASUREMENT_RECORD found)\n", (unsigned)timestamp, mode);
+        printf("KEEP_ALIVE: time=%s mode=%u (no MEASUREMENT_RECORD found)\n", timeStr, mode);
         return;
     }
 
@@ -122,8 +143,8 @@ static void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
         Protocol_GetU16(field, &battery);
     }
 
-    printf("KEEP_ALIVE: timestamp=%u mode=%u | temp=%.1fC humidity=%u%% light=%u%% battery=%u%%\n",
-       (unsigned)timestamp, mode, temperature / 10.0, humidity,
+    printf("KEEP_ALIVE: time=%s mode=%u | temp=%.1fC humidity=%u%% light=%u%% battery=%u%%\n",
+       timeStr, mode, temperature / 10.0, humidity,
        (unsigned)(light * 100 / 4095), (unsigned)(battery * 100 / 3300));
 
 }
@@ -354,7 +375,10 @@ static void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
         eventSource = field[0];
     }
 
-    printf("EVENT_REPORT: timestamp=%u type=%u source=%u", (unsigned)timestamp, eventType, eventSource);
+    char timeStr[32];
+    FormatUnixTime(timestamp, timeStr, sizeof(timeStr));
+
+    printf("EVENT_REPORT: time=%s type=%u source=%u", timeStr, eventType, eventSource);
 
     const uint8_t *measurement;
     uint16_t measurementLen;
