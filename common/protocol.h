@@ -68,6 +68,9 @@
 #define PROTO_FIELD_LIGHT                   0x30u
 #define PROTO_FIELD_BATTERY_VOLTAGE         0x31u
 #define PROTO_FIELD_SUBMARINE_ID            0x32u
+#define PROTO_FIELD_EVENT_RECORD            0x33u
+#define PROTO_FIELD_CURSOR_DAY              0x34u  /* pagination resume point: absolute day number (timestamp/86400) */
+#define PROTO_FIELD_CURSOR_OFFSET           0x35u  /* pagination resume point: byte offset within that day's log file */
 
 /* ------------------------------------------------------------------------
  * 3.6 — Status codes (value of PROTO_FIELD_STATUS)
