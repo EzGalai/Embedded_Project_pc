@@ -949,6 +949,10 @@ static void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
 
     printf("EVENT_REPORT: time=%s type=%u source=%u", timeStr, eventType, eventSource);
 
+    if (Protocol_FindField(value, len, PROTO_FIELD_WD_RESET_FLAG, &field, &fieldLen) == PROTO_OK) {
+        printf(" wd_reset=%u", field[0]);
+    }
+
     const uint8_t *measurement;
     uint16_t measurementLen;
     if (Protocol_FindField(value, len, PROTO_FIELD_MEASUREMENT_RECORD, &measurement, &measurementLen) == PROTO_OK) {
