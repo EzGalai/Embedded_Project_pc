@@ -34,6 +34,10 @@ pc_side/central_computer/central_computer
 # ground_station binary (pc_side/ground_station/)
 pc_side/ground_station/ground_station
 
+# DCA's generated, per-submarine runtime storage (pc_side/central_computer/) —
+# created and populated by dca.cpp at runtime, never hand-edited.
+pc_side/central_computer/data/
+
 # Add future phases' non-test binaries here as they're built (oop_fleet,
 # etc.) rather than a broad extensionless-file pattern, to avoid
 # accidentally ignoring something that should be tracked.
