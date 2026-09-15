@@ -3,8 +3,12 @@
 #include <cstdio>
 
 void Transport_Init(void){
-    if (!Serial_Open("/dev/ttyACM0", 115200)) {
-        fprintf(stderr, "lnc_bridge: failed to open serial port — check `ls /dev/ttyACM*` for the current device path\n");
+    /* /dev/lnc_board is a stable udev symlink (see /etc/udev/rules.d/99-nucleo.rules,
+       matching the ST-LINK's USB idVendor:idProduct 0483:374b) — always points at
+       whichever /dev/ttyACM* the kernel assigns on a given plug-in, so this path
+       never needs updating after a USB re-enumeration. */
+    if (!Serial_Open("/dev/lnc_board", 115200)) {
+        fprintf(stderr, "lnc_bridge: failed to open serial port — check `ls -l /dev/lnc_board` exists and points at the current device\n");
     }
 }
 
