@@ -568,6 +568,10 @@ Strategy: build the communication stack first in thin vertical slices (raw bytes
 - Data Collection & Analysis (date-named files per submarine, 7-day retention, reports); GS real queries over the Phase 9 link (§5.4).
 - **Test**: GS requests a range with known LNC activity, confirm returned data matches; restart core and confirm files (not memory) are the source of truth; simulate past day 7 and confirm oldest file is dropped.
 
+### Phase 14.5 — Watchdog (LNC)
+- IWDG configuration and refresh scheduling (§4.9); Init detects and reports whether a reset was watchdog-triggered (§4.4). Identified as a gap in this phase breakdown only once Phase 15 was being planned — Watchdog was described in the architecture but never assigned its own phase.
+- **Test**: force a genuine system-wide hang (deliberate, temporary test code), confirm the board resets itself automatically within the configured IWDG timeout with no manual intervention; confirm the next boot's reported reset cause correctly distinguishes a watchdog-triggered reset from a normal one.
+
 ### Phase 15 — Full-chain integration
 - LNC (real sensors) → lnc_bridge → core (files) → GS (query/report), continuously, with the bridge and core as separate long-running processes.
 - **Test**: full spec walkthrough — mode transitions, alarm/button, keep-alive cadence, log rotation, commands, GS queries — in one sitting; kill and restart `lnc_bridge` mid-run and confirm core reconnects cleanly.
