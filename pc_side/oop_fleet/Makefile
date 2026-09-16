@@ -1,7 +1,10 @@
 CC = gcc
 CXX = g++
 CFLAGS = -std=c11 -Wall -Wextra -I../../common
-CXXFLAGS = -std=c++17 -Wall -Wextra -I../../common -I../central_computer
+# DEFAULT_DATA_DIR is baked in as an absolute path (not left as a runtime-
+# relative default) so it resolves correctly regardless of which directory
+# oop_fleet happens to be launched from — see main.cpp's note.
+CXXFLAGS = -std=c++17 -Wall -Wextra -I../../common -I../central_computer -DDEFAULT_DATA_DIR=\"$(abspath ../data)\"
 
 # lnc_link_client/management_command/log/data_collection are central_computer's
 # own modules, genuinely reused here (not copied) for CentralComputer's LNC
@@ -20,7 +23,7 @@ $(TARGET): $(OBJS)
 protocol.o: ../../common/protocol.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-main.o: main.cpp submarine.h fleet.h
+main.o: main.cpp submarine.h fleet.h ../central_computer/data_collection.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 submarine.o: submarine.cpp submarine.h

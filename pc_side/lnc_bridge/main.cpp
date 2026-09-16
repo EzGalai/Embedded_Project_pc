@@ -12,24 +12,62 @@
  */
 
 #include "transport.h"
+#include "transport_serial_backed.h"
 #include "protocol.h"
 #include "bridge_server.h"
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <string>
 #include <unistd.h>
 
 #define BRIDGE_TCP_PORT 5100
 
-int main()
+/**
+ * @brief Splits "host:port" into its two parts. Falls back to defaultHost
+ * if no ':' is present (i.e. the whole string is just a port).
+ */
+static void ParseHostPort(const std::string &value, std::string &outHost, uint16_t &outPort, const std::string &defaultHost)
 {
+    size_t colon = value.rfind(':');
+    if (colon == std::string::npos) {
+        outHost = defaultHost;
+        outPort = (uint16_t)std::atoi(value.c_str());
+    } else {
+        outHost = value.substr(0, colon);
+        outPort = (uint16_t)std::atoi(value.c_str() + colon + 1);
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    std::string lncPort;                 /* empty = use transport_serial_backed's own default */
+    std::string listenHost = "127.0.0.1";
+    uint16_t listenPort = BRIDGE_TCP_PORT;
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--lnc-port") == 0 && i + 1 < argc) {
+            lncPort = argv[++i];
+        } else if (strcmp(argv[i], "--listen") == 0 && i + 1 < argc) {
+            ParseHostPort(argv[++i], listenHost, listenPort, listenHost);
+        } else {
+            fprintf(stderr, "lnc_bridge: unrecognized argument '%s'\n", argv[i]);
+            fprintf(stderr, "usage: %s [--lnc-port /dev/ttyUSB0] [--listen host:port]\n", argv[0]);
+            return 1;
+        }
+    }
+
+    if (!lncPort.empty()) {
+        TransportSerialBacked_SetDevicePath(lncPort.c_str());
+    }
     Transport_Init();
 
-    if (!BridgeServer_Init(BRIDGE_TCP_PORT)) {
-        fprintf(stderr, "lnc_bridge: failed to start TCP server on port %d\n", BRIDGE_TCP_PORT);
+    if (!BridgeServer_Init(listenPort, listenHost.c_str())) {
+        fprintf(stderr, "lnc_bridge: failed to start TCP server on %s:%u\n", listenHost.c_str(), listenPort);
         return 1;
     }
-    printf("lnc_bridge: listening on 127.0.0.1:%d, waiting for central_computer core...\n", BRIDGE_TCP_PORT);
+    printf("lnc_bridge: listening on %s:%u, waiting for central_computer core...\n", listenHost.c_str(), listenPort);
 
     uint8_t uartRxBuf[256];
     uint16_t uartRxLen = 0;

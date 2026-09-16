@@ -22,6 +22,18 @@ static const int DCA_MAX_FILES = 7;
    LNC's own xLogMutexHandle in log.c/retrieval.c. */
 static std::mutex g_dcaMutex;
 
+/* Library-level default — untouched fallback for any caller that never
+   invokes DCA_SetDataDir. Both central_computer's and oop_fleet's main()
+   always do call it (with a CLI-overridable default of "../data", landing
+   at the shared pc_side/data/ per §7), so this literal is what's actually
+   in effect only for a hypothetical caller that skips that step. */
+static std::string g_dataDir = "data";
+
+void DCA_SetDataDir(const std::string &dir)
+{
+    g_dataDir = dir;
+}
+
 /**
  * @brief This machine's current date as "YYYY-MM-DD" (UTC), used to name
  * the file a write lands in — see data_collection.h's note on why receipt
@@ -63,7 +75,7 @@ static void AppendLine(const std::string &submarineId, const char *category, con
 {
     std::lock_guard<std::mutex> lock(g_dcaMutex);
 
-    fs::path dir = fs::path("data") / submarineId / category;
+    fs::path dir = fs::path(g_dataDir) / submarineId / category;
     RotateIfNeeded(dir);
 
     fs::path file = dir / (TodayDateString() + ".log");
@@ -124,7 +136,7 @@ static std::vector<std::string> ReadAllLines(const fs::path &dir)
 std::vector<DcaMeasurement> DCA_QueryMeasurements(const std::string &submarineId, uint32_t start, uint32_t end)
 {
     std::vector<DcaMeasurement> result;
-    fs::path dir = fs::path("data") / submarineId / "measurements";
+    fs::path dir = fs::path(g_dataDir) / submarineId / "measurements";
 
     for (const auto &line : ReadAllLines(dir)) {
         DcaMeasurement m;
@@ -148,7 +160,7 @@ std::vector<DcaMeasurement> DCA_QueryMeasurements(const std::string &submarineId
 std::vector<DcaEvent> DCA_QueryEvents(const std::string &submarineId, uint32_t start, uint32_t end)
 {
     std::vector<DcaEvent> result;
-    fs::path dir = fs::path("data") / submarineId / "events";
+    fs::path dir = fs::path(g_dataDir) / submarineId / "events";
 
     for (const auto &line : ReadAllLines(dir)) {
         uint32_t ts;

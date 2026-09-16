@@ -35,9 +35,8 @@ bool CcCore_GetTime(int fd, uint32_t *outTime, const std::string &submarineId = 
 bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus, const std::string &submarineId = "LNC-01");
 
 /**
- * @brief Sends SET_BATTERY_WARNING_MIN with newMinMv and waits for CONFIG_ACK.
- * Phase 12 test: proves a SET_* config command reaches Config_ApplyUpdate
- * and gets acknowledged.
+ * @brief Sends SET_BATTERY_WARNING_MIN with newMinMv and waits for CONFIG_ACK
+ * — one of the LNC's SET_* config commands (§3.3), reaching Config_ApplyUpdate.
  * @param fd Connected socket.
  * @param newMinMv New battery-warning-minimum threshold, in mV.
  * @param outStatus Set to the ACK's STATUS on success.

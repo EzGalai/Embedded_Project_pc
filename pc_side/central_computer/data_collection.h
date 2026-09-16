@@ -16,6 +16,16 @@
 #include <vector>
 
 /**
+ * @brief Sets the base directory under which per-submarine data/ folders
+ * are created and read (default "../data", landing at the shared
+ * pc_side/data/ per PROJECT_PLAN.md §7 when run from within a pc_side/
+ * subdirectory as usual — see the --data-dir CLI flag). Call once, before
+ * any DCA_Store or DCA_Query call.
+ * @param dir Path (absolute, or relative to the process's working directory).
+ */
+void DCA_SetDataDir(const std::string &dir);
+
+/**
  * @brief One parsed measurement record, as returned by DCA_QueryMeasurements.
  */
 struct DcaMeasurement {

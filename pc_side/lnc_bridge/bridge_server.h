@@ -2,18 +2,18 @@
  * @file bridge_server.h
  * @brief TCP server side of the lnc_bridge <-> central_computer link (Phase 6, see PROJECT_PLAN.md §4.11-4.13).
  *
- * lnc_bridge owns this TCP server; central_computer (or, for Phase 6's test, stub_core_client)
- * connects as the single client. Payloads crossing this link are core-side, uninterpreted byte
- * blobs — already unwrapped from LNC framing on the way up, and not yet re-wrapped on the way down.
- * They are protected only by TCP's own reliability plus a 4-byte big-endian length prefix per
- * message (no CRC/byte-stuffing needed here — unlike the UART link in protocol.h, this transport
- * is already loss-free and byte-stuffing would be redundant).
+ * lnc_bridge owns this TCP server; central_computer connects as the single client. Payloads
+ * crossing this link are core-side, uninterpreted byte blobs — already unwrapped from LNC framing
+ * on the way up, and not yet re-wrapped on the way down. They are protected only by TCP's own
+ * reliability plus a 4-byte big-endian length prefix per message (no CRC/byte-stuffing needed here
+ * — unlike the UART link in protocol.h, this transport is already loss-free and byte-stuffing
+ * would be redundant).
  *
- * lnc_bridge and central_computer run as two processes on the same PC (split apart for process
- * isolation, not for running on separate machines), so this server binds to loopback only
- * (127.0.0.1) internally — never reachable from another machine. Contrast with the future
- * central_computer <-> Ground Station link (Phase 7), which is a real network link between
- * different machines and will need a configurable bind address.
+ * lnc_bridge and central_computer normally run as two processes on the same PC (split apart for
+ * process isolation, not for running on separate machines), so this server defaults to binding
+ * loopback only (127.0.0.1) — contrast with the central_computer <-> Ground Station link (Phase 7),
+ * a real network link between different machines. The bind address is overridable (Phase 17,
+ * --listen) for cases that deliberately need otherwise.
  *
  * The server is single-client and non-blocking: BridgeServer_Accept and BridgeServer_TryRecv never
  * block, so lnc_bridge's main loop can poll both the UART transport and this TCP link in the same
@@ -26,15 +26,18 @@
 #include <cstdint>
 
 /**
- * @brief Create, bind (to loopback), and listen on the server's TCP socket.
+ * @brief Create, bind, and listen on the server's TCP socket.
  *
  * Puts the listening socket into non-blocking mode. Must be called once before any other
  * BridgeServer_* function.
  *
+ * @param host Address to bind to (defaults to "127.0.0.1" — see this file's
+ * header comment on why loopback is this link's intended design; overridable
+ * via --listen for cases that deliberately need otherwise).
  * @param port TCP port to listen on (host byte order).
  * @return true on success, false if the socket could not be created/bound/listened on.
  */
-bool BridgeServer_Init(uint16_t port);
+bool BridgeServer_Init(uint16_t port, const char *host = "127.0.0.1");
 
 /**
  * @brief Non-blocking check for an incoming client connection.

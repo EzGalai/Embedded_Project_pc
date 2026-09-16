@@ -34,17 +34,22 @@ pc_side/central_computer/central_computer
 # ground_station binary (pc_side/ground_station/)
 pc_side/ground_station/ground_station
 
-# DCA's generated, per-submarine runtime storage (pc_side/central_computer/) —
-# created and populated by dca.cpp at runtime, never hand-edited.
-pc_side/central_computer/data/
-
 # oop_fleet binary (pc_side/oop_fleet/)
 pc_side/oop_fleet/oop_fleet
 
-# DCA's generated, per-submarine runtime storage when a CombatSubmarine's
-# CentralComputer actually connects to a live LNC (pc_side/oop_fleet/) —
-# same data_collection.cpp module central_computer/ uses, run from here.
-pc_side/oop_fleet/data/
+# DCA's generated, per-submarine runtime storage — shared by central_computer
+# and oop_fleet (both link data_collection.cpp/cc_core), per PROJECT_PLAN.md
+# §7's single pc_side/data/<submarine_id>/... layout (Phase 17 relocation;
+# each process's own data/ subdirectory was used before that and is gone now).
+pc_side/data/
+
+# CMake build tree (Phase 17) — `cmake -B build -S .` from pc_side/, per §8.
+# The per-directory Makefiles still work too and are unaffected by this.
+pc_side/build/
+
+# PROJECT_PLAN.md (Phase 17) — untracked by request; stays on disk as a
+# local reference but no longer version-controlled.
+PROJECT_PLAN.md
 
 # Add future phases' non-test binaries here as they're built rather than
 # a broad extensionless-file pattern, to avoid accidentally ignoring

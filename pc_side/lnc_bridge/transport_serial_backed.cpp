@@ -1,14 +1,23 @@
 #include "transport.h"
+#include "transport_serial_backed.h"
 #include "transport_serial.h"
 #include <cstdio>
 
+/* Default is the stable udev symlink (see /etc/udev/rules.d/99-nucleo.rules,
+   matching the ST-LINK's USB idVendor:idProduct 0483:374b) — always points at
+   whichever /dev/ttyACM* the kernel assigns on a given plug-in, so this path
+   never needs updating after a USB re-enumeration. Overridable via --lnc-port. */
+static const char *g_devicePath = "/dev/lnc_board";
+
+void TransportSerialBacked_SetDevicePath(const char *path)
+{
+    g_devicePath = path;
+}
+
 void Transport_Init(void){
-    /* /dev/lnc_board is a stable udev symlink (see /etc/udev/rules.d/99-nucleo.rules,
-       matching the ST-LINK's USB idVendor:idProduct 0483:374b) — always points at
-       whichever /dev/ttyACM* the kernel assigns on a given plug-in, so this path
-       never needs updating after a USB re-enumeration. */
-    if (!Serial_Open("/dev/lnc_board", 115200)) {
-        fprintf(stderr, "lnc_bridge: failed to open serial port — check `ls -l /dev/lnc_board` exists and points at the current device\n");
+    if (!Serial_Open(g_devicePath, 115200)) {
+        fprintf(stderr, "lnc_bridge: failed to open serial port '%s' — check `ls -l %s` exists and points at the current device\n",
+                g_devicePath, g_devicePath);
     }
 }
 

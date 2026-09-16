@@ -359,7 +359,9 @@ void CC_GsLink_Run(uint16_t port)
         printf("central_computer: received GS greeting: %s\n", greeting);
 
         bool greetingOk = (strcmp(greeting, GS_HANDSHAKE_GREETING) == 0);
-        printf("Phase 9 test: %s\n", greetingOk ? "PASSED" : "FAILED");
+        if (!greetingOk) {
+            fprintf(stderr, "central_computer: GS handshake failed (unexpected greeting)\n");
+        }
 
         const char *reply = GS_HANDSHAKE_REPLY;
         uint16_t replyLen = (uint16_t)strlen(reply);

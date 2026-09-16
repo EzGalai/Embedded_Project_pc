@@ -19,6 +19,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cerrno>
@@ -34,7 +35,7 @@ static int g_clientFd = -1;         /* the one accepted client, -1 if none */
 static uint8_t g_recvBuf[BRIDGE_RECV_BUF_SIZE];
 static uint16_t g_recvLen = 0;      /* bytes currently accumulated in g_recvBuf */
 
-bool BridgeServer_Init(uint16_t port)
+bool BridgeServer_Init(uint16_t port, const char *host)
 {
     g_listenFd = socket(AF_INET, SOCK_STREAM, 0); /* IPv4 TCP */
     if (g_listenFd < 0) {
@@ -47,15 +48,20 @@ bool BridgeServer_Init(uint16_t port)
     int reuse = 1;
     setsockopt(g_listenFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
-    /* INADDR_LOOPBACK (127.0.0.1), not INADDR_ANY — only reachable from this
-       machine, per this link's same-machine design. */
+    /* Defaults to loopback (127.0.0.1), not INADDR_ANY — only reachable from
+       this machine, per this link's same-machine design (see bridge_server.h). */
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        fprintf(stderr, "BridgeServer_Init: invalid host '%s'\n", host);
+        close(g_listenFd);
+        g_listenFd = -1;
+        return false;
+    }
 
     if (bind(g_listenFd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-        fprintf(stderr, "BridgeServer_Init: bind() failed on port %u: %s\n", port, strerror(errno));
+        fprintf(stderr, "BridgeServer_Init: bind() failed on %s:%u: %s\n", host, port, strerror(errno));
         close(g_listenFd);
         g_listenFd = -1;
         return false;

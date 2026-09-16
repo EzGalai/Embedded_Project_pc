@@ -1,7 +1,10 @@
 CC = gcc
 CXX = g++
 CFLAGS = -std=c11 -Wall -Wextra -I../../common
-CXXFLAGS = -std=c++17 -Wall -Wextra -I../../common -pthread
+# DEFAULT_DATA_DIR is baked in as an absolute path (not left as a runtime-
+# relative default) so it resolves correctly regardless of which directory
+# central_computer happens to be launched from — see main.cpp's note.
+CXXFLAGS = -std=c++17 -Wall -Wextra -I../../common -pthread -DDEFAULT_DATA_DIR=\"$(abspath ../data)\"
 
 OBJS = protocol.o main.o lnc_link_client.o log.o management_command.o comm_gs.o data_collection.o
 TARGET = central_computer
@@ -16,7 +19,7 @@ $(TARGET): $(OBJS)
 protocol.o: ../../common/protocol.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-main.o: main.cpp lnc_link_client.h management_command.h log.h comm_gs.h
+main.o: main.cpp lnc_link_client.h management_command.h log.h comm_gs.h data_collection.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 lnc_link_client.o: lnc_link_client.cpp lnc_link_client.h log.h

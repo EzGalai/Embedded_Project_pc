@@ -11,34 +11,68 @@
 #include "management_command.h"
 #include "log.h"
 #include "comm_gs.h"
+#include "data_collection.h"
 
 #include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #include <ctime>
+#include <string>
 #include <thread>
 #include <chrono>
 #include <unistd.h>
 
-int main()
+/* Baked in at build time (by the Makefile/CMakeLists.txt) as an absolute
+   path to the shared pc_side/data/ (§7) — deliberately not a runtime-
+   relative default, since the "correct" relative path to it differs
+   between the Makefile-built binary (run from within central_computer/)
+   and the CMake-built one (run from pc_side/, per §8's example commands). */
+#ifndef DEFAULT_DATA_DIR
+#define DEFAULT_DATA_DIR "../data"
+#endif
+
+int main(int argc, char *argv[])
 {
+    std::string bridgeHost = "127.0.0.1";
+    uint16_t bridgePort = BRIDGE_TCP_PORT;
+    uint16_t gsPort = GS_TCP_PORT;
+    std::string dataDir = DEFAULT_DATA_DIR;
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--bridge-host") == 0 && i + 1 < argc) {
+            bridgeHost = argv[++i];
+        } else if (strcmp(argv[i], "--bridge-port") == 0 && i + 1 < argc) {
+            bridgePort = (uint16_t)std::atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--gs-port") == 0 && i + 1 < argc) {
+            gsPort = (uint16_t)std::atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
+            dataDir = argv[++i];
+        } else {
+            fprintf(stderr, "central_computer: unrecognized argument '%s'\n", argv[i]);
+            fprintf(stderr, "usage: %s [--bridge-host host] [--bridge-port port] [--gs-port port] [--data-dir path]\n", argv[0]);
+            return 1;
+        }
+    }
+
+    DCA_SetDataDir(dataDir);
+
     /* Phase 15: GS serving runs continuously on its own thread, concurrent
        with the LNC handling below — see CC_GsLink_Run's own comment and
        data_collection.cpp's mutex for why this is safe. */
-    std::thread gsThread(CC_GsLink_Run, GS_TCP_PORT);
+    std::thread gsThread(CC_GsLink_Run, gsPort);
     gsThread.detach();
-
-    bool firstConnection = true;
 
     /* Phase 15: reconnect loop — a dropped LNC link (lnc_bridge restarting,
        or the LNC itself rebooting) no longer ends the program. It retries
        connecting until it succeeds, then resumes normal operation. */
     for (;;) {
-        int fd = CcCore_LncConnect();
+        int fd = CcCore_LncConnect(bridgeHost.c_str(), bridgePort);
         if (fd < 0) {
             fprintf(stderr, "central_computer: no lnc_bridge connection, retrying in 3s...\n");
             std::this_thread::sleep_for(std::chrono::seconds(3));
             continue;
         }
-        printf("central_computer: connected to lnc_bridge on 127.0.0.1:%d\n", BRIDGE_TCP_PORT);
+        printf("central_computer: connected to lnc_bridge on %s:%u\n", bridgeHost.c_str(), bridgePort);
 
         /* --- Get/Set time round-trip, re-synced on EVERY (re)connection ---
            Not just the first: this is what actually fixes the gap found
@@ -67,27 +101,9 @@ int main()
            continuously-advancing clock value rather than an artificial
            +1000s jump — a second can genuinely tick over between the SET
            and this GET due to normal round-trip latency. */
-        bool match = ok && (confirmedTime >= newTime) && (confirmedTime <= newTime + 2);
-        printf("Phase 8 test: %s\n", match ? "PASSED" : "FAILED");
-
-        if (firstConnection) {
-            /* --- Phase 12/13 one-time demo tests — proven once at first
-               connection, not repeated on every reconnect (see the
-               option-1-for-now decision: these stay as startup self-tests,
-               to be cleaned up properly, if wanted, in Phase 17). --- */
-            ProtoStatus_t setConfigStatus = PROTO_STATUS_INTERNAL_ERROR;
-            bool configOk = CcCore_SetBatteryWarningMin(fd, 1500, &setConfigStatus) && (setConfigStatus == PROTO_STATUS_SUCCESS);
-            printf("Phase 12 test: SET_BATTERY_WARNING_MIN %s\n", configOk ? "PASSED" : "FAILED");
-
-            uint32_t queryStart = (newTime > 60) ? (newTime - 60) : 0;
-            uint32_t queryEnd = confirmedTime + 60;
-            CcCore_GetMeasurements(fd, queryStart, queryEnd);
-
-            uint32_t eventsQueryStart = (newTime > 10) ? (newTime - 10) : 0;
-            uint32_t eventsQueryEnd = confirmedTime + 10;
-            CcCore_GetEvents(fd, eventsQueryStart, eventsQueryEnd);
-
-            firstConnection = false;
+        bool synced = ok && (confirmedTime >= newTime) && (confirmedTime <= newTime + 2);
+        if (!synced) {
+            fprintf(stderr, "central_computer: time sync with LNC failed\n");
         }
 
         /* --- Streaming loop: print/store KEEP_ALIVE/EVENT_REPORT until the
