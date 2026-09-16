@@ -1,7 +1,7 @@
 CC = gcc
 CXX = g++
 CFLAGS = -std=c11 -Wall -Wextra -I../../common
-CXXFLAGS = -std=c++17 -Wall -Wextra -I../../common
+CXXFLAGS = -std=c++17 -Wall -Wextra -I../../common -pthread
 
 OBJS = protocol.o main.o dca.o
 TARGET = central_computer
@@ -11,7 +11,7 @@ TARGET = central_computer
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CXX) $(OBJS) -o $(TARGET)
+	$(CXX) -pthread $(OBJS) -o $(TARGET)
 
 protocol.o: ../../common/protocol.c
 	$(CC) $(CFLAGS) -c $< -o $@

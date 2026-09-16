@@ -13,6 +13,8 @@
 #include <ctime>
 #include <string>
 #include <vector>
+#include <thread>
+#include <chrono>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -839,21 +841,20 @@ static bool CC_GsLink_Dispatch(int clientFd)
 }
 
 /**
- * @brief Listens for and serves one Ground Station connection: accepts a
- * client, reads its length-prefixed greeting, replies with a fixed
- * length-prefixed acknowledgment, then serves GS_GET_LOG_REQ/
- * GS_GET_EVENTS_REQ (via CC_GsLink_Dispatch) until the client disconnects.
- * Blocking, single connection — not concurrent operation alongside the
- * LNC-facing link (PROJECT_PLAN.md §6 Phase 14).
+ * @brief Runs forever on its own thread (Phase 15): binds/listens once,
+ * then repeatedly accepts a GS client, performs the handshake, serves
+ * GS_GET_LOG_REQ/GS_GET_EVENTS_REQ (via CC_GsLink_Dispatch) until that
+ * client disconnects, and goes back to accepting the next one. Runs
+ * concurrently with the main thread's LNC handling — see dca.cpp's mutex
+ * for the resulting thread-safety requirement on DCA's file operations.
  * @param port Port to listen on.
- * @return true if a client connected and sent the expected greeting.
  */
-static bool CC_GsLink_Listen(uint16_t port)
+static void CC_GsLink_Run(uint16_t port)
 {
     int listenFd = socket(AF_INET, SOCK_STREAM, 0);
     if (listenFd < 0) {
         fprintf(stderr, "central_computer: GS listen socket() failed: %s\n", strerror(errno));
-        return false;
+        return;
     }
 
     int reuse = 1;
@@ -867,63 +868,61 @@ static bool CC_GsLink_Listen(uint16_t port)
     if (bind(listenFd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
         fprintf(stderr, "central_computer: GS listen bind() failed on port %u: %s\n", port, strerror(errno));
         close(listenFd);
-        return false;
+        return;
     }
 
     if (listen(listenFd, 1) < 0) {
         fprintf(stderr, "central_computer: GS listen() failed: %s\n", strerror(errno));
         close(listenFd);
-        return false;
+        return;
     }
 
     printf("central_computer: GS link listening on port %u, waiting for Ground Station...\n", port);
 
-    int clientFd = accept(listenFd, nullptr, nullptr);
-    if (clientFd < 0) {
-        fprintf(stderr, "central_computer: GS accept() failed: %s\n", strerror(errno));
-        close(listenFd);
-        return false;
-    }
-    printf("central_computer: Ground Station connected\n");
-
-    uint8_t prefix[4];
-    if (recv(clientFd, prefix, sizeof(prefix), MSG_WAITALL) != sizeof(prefix)) {
-        fprintf(stderr, "central_computer: GS handshake — failed to read greeting length\n");
-        close(clientFd);
-        close(listenFd);
-        return false;
-    }
-    uint32_t greetingLen;
-    Protocol_GetU32(prefix, &greetingLen);
-
-    char greeting[64] = {0};
-    if (greetingLen >= sizeof(greeting) || recv(clientFd, greeting, greetingLen, MSG_WAITALL) != (ssize_t)greetingLen) {
-        fprintf(stderr, "central_computer: GS handshake — failed to read greeting\n");
-        close(clientFd);
-        close(listenFd);
-        return false;
-    }
-    printf("central_computer: received GS greeting: %s\n", greeting);
-
-    bool greetingOk = (strcmp(greeting, GS_HANDSHAKE_GREETING) == 0);
-
-    const char *reply = GS_HANDSHAKE_REPLY;
-    uint16_t replyLen = (uint16_t)strlen(reply);
-    Protocol_PutU32(prefix, replyLen);
-    send(clientFd, prefix, sizeof(prefix), 0);
-    send(clientFd, reply, replyLen, 0);
-
-    if (greetingOk) {
-        while (CC_GsLink_Dispatch(clientFd)) {
-            /* keep serving requests until the GS disconnects */
+    for (;;) {
+        int clientFd = accept(listenFd, nullptr, nullptr);
+        if (clientFd < 0) {
+            fprintf(stderr, "central_computer: GS accept() failed: %s\n", strerror(errno));
+            continue; /* keep listening rather than giving up entirely */
         }
-        printf("central_computer: Ground Station disconnected\n");
+        printf("central_computer: Ground Station connected\n");
+
+        uint8_t prefix[4];
+        if (recv(clientFd, prefix, sizeof(prefix), MSG_WAITALL) != sizeof(prefix)) {
+            fprintf(stderr, "central_computer: GS handshake — failed to read greeting length\n");
+            close(clientFd);
+            continue;
+        }
+        uint32_t greetingLen;
+        Protocol_GetU32(prefix, &greetingLen);
+
+        char greeting[64] = {0};
+        if (greetingLen >= sizeof(greeting) || recv(clientFd, greeting, greetingLen, MSG_WAITALL) != (ssize_t)greetingLen) {
+            fprintf(stderr, "central_computer: GS handshake — failed to read greeting\n");
+            close(clientFd);
+            continue;
+        }
+        printf("central_computer: received GS greeting: %s\n", greeting);
+
+        bool greetingOk = (strcmp(greeting, GS_HANDSHAKE_GREETING) == 0);
+        printf("Phase 9 test: %s\n", greetingOk ? "PASSED" : "FAILED");
+
+        const char *reply = GS_HANDSHAKE_REPLY;
+        uint16_t replyLen = (uint16_t)strlen(reply);
+        Protocol_PutU32(prefix, replyLen);
+        send(clientFd, prefix, sizeof(prefix), 0);
+        send(clientFd, reply, replyLen, 0);
+
+        if (greetingOk) {
+            while (CC_GsLink_Dispatch(clientFd)) {
+                /* keep serving requests until the GS disconnects */
+            }
+            printf("central_computer: Ground Station disconnected\n");
+        }
+
+        close(clientFd);
+        /* loop back and accept the next GS client — listenFd stays open */
     }
-
-    close(clientFd);
-    close(listenFd);
-
-    return greetingOk;
 }
 
 static void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
@@ -991,13 +990,32 @@ static void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
 
 int main()
 {
-    int fd = CcCore_LncConnect();
-    bool lncConnected = (fd >= 0);
+    /* Phase 15: GS serving runs continuously on its own thread, concurrent
+       with the LNC handling below — see CC_GsLink_Run's own comment and
+       dca.cpp's mutex for why this is safe. */
+    std::thread gsThread(CC_GsLink_Run, GS_TCP_PORT);
+    gsThread.detach();
 
-    if (lncConnected) {
+    bool firstConnection = true;
+
+    /* Phase 15: reconnect loop — a dropped LNC link (lnc_bridge restarting,
+       or the LNC itself rebooting) no longer ends the program. It retries
+       connecting until it succeeds, then resumes normal operation. */
+    for (;;) {
+        int fd = CcCore_LncConnect();
+        if (fd < 0) {
+            fprintf(stderr, "central_computer: no lnc_bridge connection, retrying in 3s...\n");
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+            continue;
+        }
         printf("central_computer: connected to lnc_bridge on 127.0.0.1:%d\n", BRIDGE_TCP_PORT);
 
-        /* --- Phase 8: Get/Set time round-trip test --- */
+        /* --- Get/Set time round-trip, re-synced on EVERY (re)connection ---
+           Not just the first: this is what actually fixes the gap found
+           during Watchdog testing — if the LNC itself rebooted (watchdog-
+           triggered or otherwise) while this process kept running, its
+           clock reverts to the fake boot baseline and needs re-syncing,
+           the same as a fresh first connection would. */
         uint32_t initialTime = 0;
         bool ok = CcCore_GetTime(fd, &initialTime);
         if (ok) printf("central_computer: initial LNC time = %u\n", (unsigned)initialTime);
@@ -1022,44 +1040,28 @@ int main()
         bool match = ok && (confirmedTime >= newTime) && (confirmedTime <= newTime + 2);
         printf("Phase 8 test: %s\n", match ? "PASSED" : "FAILED");
 
-        /* --- Phase 12: Config SET round-trip test --- */
-        ProtoStatus_t setConfigStatus = PROTO_STATUS_INTERNAL_ERROR;
-        bool configOk = CcCore_SetBatteryWarningMin(fd, 1500, &setConfigStatus) && (setConfigStatus == PROTO_STATUS_SUCCESS);
-        printf("Phase 12 test: SET_BATTERY_WARNING_MIN %s\n", configOk ? "PASSED" : "FAILED");
+        if (firstConnection) {
+            /* --- Phase 12/13 one-time demo tests — proven once at first
+               connection, not repeated on every reconnect (see the
+               option-1-for-now decision: these stay as startup self-tests,
+               to be cleaned up properly, if wanted, in Phase 17). --- */
+            ProtoStatus_t setConfigStatus = PROTO_STATUS_INTERNAL_ERROR;
+            bool configOk = CcCore_SetBatteryWarningMin(fd, 1500, &setConfigStatus) && (setConfigStatus == PROTO_STATUS_SUCCESS);
+            printf("Phase 12 test: SET_BATTERY_WARNING_MIN %s\n", configOk ? "PASSED" : "FAILED");
 
-        /* --- Phase 13: GET_MEASUREMENTS_REQ/RESP retrieval test ---
-           Anchored on newTime (the real time we just set), not
-           initialTime — initialTime is whatever the LNC's clock was
-           BEFORE this sync, which on a fresh boot is still the old
-           ~year-2000 fake baseline. Anchoring there would make the window
-           span decades, forcing retrieval.c's day-by-day file scan to
-           probe tens of thousands of nonexistent days. Measurements
-           logged before this sync used that old fake clock and are
-           unreachable via a real-time query now — expected and
-           unavoidable once the clock has been corrected. */
-        uint32_t queryStart = (newTime > 60) ? (newTime - 60) : 0;
-        uint32_t queryEnd = confirmedTime + 60;
-        CcCore_GetMeasurements(fd, queryStart, queryEnd);
+            uint32_t queryStart = (newTime > 60) ? (newTime - 60) : 0;
+            uint32_t queryEnd = confirmedTime + 60;
+            CcCore_GetMeasurements(fd, queryStart, queryEnd);
 
-        /* --- Phase 13: GET_EVENTS_REQ/RESP retrieval test ---
-           Same newTime-anchored reasoning as above, but a smaller
-           end-margin (+10s not +60s) — Object Detection has been firing
-           every ~200ms poll cycle, so a wide window can mean 100+ events
-           to page through. */
-        uint32_t eventsQueryStart = (newTime > 10) ? (newTime - 10) : 0;
-        uint32_t eventsQueryEnd = confirmedTime + 10;
-        CcCore_GetEvents(fd, eventsQueryStart, eventsQueryEnd);
-    }
-    else {
-        printf("central_computer: no lnc_bridge connection — continuing without the LNC link\n");
-    }
+            uint32_t eventsQueryStart = (newTime > 10) ? (newTime - 10) : 0;
+            uint32_t eventsQueryEnd = confirmedTime + 10;
+            CcCore_GetEvents(fd, eventsQueryStart, eventsQueryEnd);
 
-    /* --- Phase 9: Ground Station link test (independent of the LNC link) --- */
-    bool gsOk = CC_GsLink_Listen(GS_TCP_PORT);
-    printf("Phase 9 test: %s\n", gsOk ? "PASSED" : "FAILED");
+            firstConnection = false;
+        }
 
-    if (lncConnected) {
-        /* --- Phase 7 behavior continues: print any further KEEP_ALIVEs forever --- */
+        /* --- Streaming loop: print/store KEEP_ALIVE/EVENT_REPORT until the
+           link drops, then fall through to the outer loop and reconnect. --- */
         for (;;) {
             uint8_t storage[256];
             uint8_t tag;
@@ -1075,10 +1077,9 @@ int main()
             } else {
                 printf("central_computer: received unhandled tag 0x%02X\n", tag);
             }
-
         }
-        close(fd);
-    }
 
-    return 0;
+        close(fd);
+        fprintf(stderr, "central_computer: attempting to reconnect...\n");
+    }
 }

@@ -9,11 +9,18 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 namespace fs = std::filesystem;
 
 static const int DCA_MAX_FILES = 7;
+
+/* Phase 15: central_computer now serves Ground Station queries on their own
+   thread, concurrently with the main thread storing incoming LNC data — so
+   every file operation here needs to be serialized, same reasoning as the
+   LNC's own xLogMutexHandle in log.c/retrieval.c. */
+static std::mutex g_dcaMutex;
 
 /**
  * @brief This machine's current date as "YYYY-MM-DD" (UTC), used to name
@@ -54,6 +61,8 @@ static void RotateIfNeeded(const fs::path &dir)
 
 static void AppendLine(const std::string &submarineId, const char *category, const std::string &line)
 {
+    std::lock_guard<std::mutex> lock(g_dcaMutex);
+
     fs::path dir = fs::path("data") / submarineId / category;
     RotateIfNeeded(dir);
 
@@ -90,6 +99,8 @@ void DCA_StoreEvent(const std::string &submarineId, uint32_t timestamp, uint8_t 
  */
 static std::vector<std::string> ReadAllLines(const fs::path &dir)
 {
+    std::lock_guard<std::mutex> lock(g_dcaMutex);
+
     std::vector<std::string> lines;
     std::error_code ec;
     if (!fs::exists(dir, ec)) return lines;
