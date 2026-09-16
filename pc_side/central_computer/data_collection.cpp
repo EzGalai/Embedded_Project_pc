@@ -1,8 +1,8 @@
 /*
- * dca.cpp — see dca.h.
+ * data_collection.cpp — see data_collection.h.
  */
 
-#include "dca.h"
+#include "data_collection.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -24,8 +24,8 @@ static std::mutex g_dcaMutex;
 
 /**
  * @brief This machine's current date as "YYYY-MM-DD" (UTC), used to name
- * the file a write lands in — see dca.h's note on why receipt time is
- * used instead of the submarine's reported timestamp.
+ * the file a write lands in — see data_collection.h's note on why receipt
+ * time is used instead of the submarine's reported timestamp.
  */
 static std::string TodayDateString()
 {

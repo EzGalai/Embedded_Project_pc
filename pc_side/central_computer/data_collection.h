@@ -1,14 +1,15 @@
 /**
- * @file dca.h
+ * @file data_collection.h
  * @brief Data Collection & Analysis — central_computer's own persistent
- * storage. See PROJECT_PLAN.md §4.17. One directory per submarine (keyed
- * by a submarine ID — a fixed "LNC-01" constant for this project, since a
- * real per-connection ID isn't wired into the live traffic until Phase 16's
- * Fleet Management work), date-named files, 7-day retention — the same
- * mental model as the LNC's own Log module (§4.5), just on the PC side.
+ * storage. See PROJECT_PLAN.md §4.17/§7 (planned filename). One directory
+ * per submarine (keyed by a submarine ID — a fixed "LNC-01" constant for
+ * this project, since a real per-connection ID isn't wired into the live
+ * traffic until Phase 16's Fleet Management work), date-named files,
+ * 7-day retention — the same mental model as the LNC's own Log module
+ * (§4.5), just on the PC side.
  */
-#ifndef DCA_H
-#define DCA_H
+#ifndef DATA_COLLECTION_H
+#define DATA_COLLECTION_H
 
 #include <cstdint>
 #include <string>
