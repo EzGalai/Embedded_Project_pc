@@ -11,23 +11,28 @@
 #include "protocol.h"
 
 #include <cstdint>
+#include <string>
 
 /**
  * @brief Sends GET_TIME_REQ and waits for GET_TIME_RESP.
  * @param fd Connected socket.
  * @param outTime Set to the decoded TIMESTAMP on success.
+ * @param submarineId Whose telemetry any interleaved KEEP_ALIVE/EVENT_REPORT
+ * received while waiting belongs to, for DCA storage — defaults to the
+ * standalone central_computer process's single submarine.
  * @return true on success.
  */
-bool CcCore_GetTime(int fd, uint32_t *outTime);
+bool CcCore_GetTime(int fd, uint32_t *outTime, const std::string &submarineId = "LNC-01");
 
 /**
  * @brief Sends SET_RTC_REQ with newTime and waits for CONFIG_ACK.
  * @param fd Connected socket.
  * @param newTime Timestamp to set.
  * @param outStatus Set to the ACK's STATUS on success.
+ * @param submarineId See CcCore_GetTime.
  * @return true on success.
  */
-bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus);
+bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus, const std::string &submarineId = "LNC-01");
 
 /**
  * @brief Sends SET_BATTERY_WARNING_MIN with newMinMv and waits for CONFIG_ACK.
@@ -36,9 +41,10 @@ bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus);
  * @param fd Connected socket.
  * @param newMinMv New battery-warning-minimum threshold, in mV.
  * @param outStatus Set to the ACK's STATUS on success.
+ * @param submarineId See CcCore_GetTime.
  * @return true on success.
  */
-bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outStatus);
+bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outStatus, const std::string &submarineId = "LNC-01");
 
 /**
  * @brief Sends GET_MEASUREMENTS_REQ for [startTime, endTime] and prints
@@ -48,8 +54,9 @@ bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outSt
  * @param fd Connected socket.
  * @param startTime Inclusive range start (Unix timestamp).
  * @param endTime Inclusive range end (Unix timestamp).
+ * @param submarineId See CcCore_GetTime.
  */
-void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime);
+void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime, const std::string &submarineId = "LNC-01");
 
 /**
  * @brief Sends GET_EVENTS_REQ for [startTime, endTime] and prints every
@@ -60,7 +67,8 @@ void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime);
  * @param fd Connected socket.
  * @param startTime Inclusive range start (Unix timestamp).
  * @param endTime Inclusive range end (Unix timestamp).
+ * @param submarineId See CcCore_GetTime.
  */
-void CcCore_GetEvents(int fd, uint32_t startTime, uint32_t endTime);
+void CcCore_GetEvents(int fd, uint32_t startTime, uint32_t endTime, const std::string &submarineId = "LNC-01");
 
 #endif

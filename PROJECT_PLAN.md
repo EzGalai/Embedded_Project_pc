@@ -408,7 +408,7 @@ Each line is a simple delimited/CSV-style record (timestamp, fields, mode) — h
 | `Submarine` (abstract base) | `serialNumber`, `name`, `assignedToMission` |
 | `ResearchSubmarine : Submarine` | `researchers[]`, `researchTopic` |
 | `CombatSubmarine : Submarine` | `missionDescription`, `commanderName`, `personnelCount`, `CentralComputer centralComputer`, `participatingSubmarines[]`, `missionHistory[]`, `receivedMessages[]` |
-| `Fleet` | container of `Submarine*`, implements the 10 menu operations |
+| `Fleet` | container of `Submarine*`, implements the 10 menu operations plus an extra op 11 (historical LNC data query, past the spec's 10 — see Phase 16) |
 | `Message` | `content`, `senderSerialNumber` |
 
 ---
@@ -578,7 +578,7 @@ Strategy: build the communication stack first in thin vertical slices (raw bytes
 
 ### Phase 16 — OOP Fleet Management System
 - `Submarine`/`ResearchSubmarine`/`CombatSubmarine` hierarchy, `Fleet`, the 10 menu operations, inter-submarine messaging.
-- **Test**: exercise all 10 operations, including a `CombatSubmarine`'s embedded `CentralComputer` talking to a real or stubbed LNC (its own `lnc_bridge` instance).
+- **Test**: exercise all 10 operations (pure fleet/mission bookkeeping — they never call into a CombatSubmarine's embedded CentralComputer). Separately, prove the CentralComputer class itself is real: connect it to a real or stubbed LNC (its own `lnc_bridge` instance), sync time, and retrieve data, via the same lnc_link_client/management_command/log/data_collection modules central_computer's standalone process uses. Ops 2/3 (display) surface its latest cached telemetry when connected; an extra op 11 (past the spec's 10) queries historical measurements/events over a chosen hours-back range.
 
 ### Phase 17 — Wrap-up
 - Spec-vs-implementation gap pass; final documentation.
@@ -634,10 +634,11 @@ finalProject/
     │   └── main.cpp
     ├── oop_fleet/
     │   ├── main.cpp
-    │   ├── submarine.h
-    │   ├── research_submarine.h
-    │   ├── combat_submarine.h
-    │   └── fleet.h
+    │   ├── submarine.cpp / .h
+    │   ├── research_submarine.cpp / .h
+    │   ├── combat_submarine.cpp / .h
+    │   ├── central_computer.cpp / .h    # wraps central_computer/'s LNC-facing modules for a CombatSubmarine's own connection
+    │   └── fleet.cpp / .h
     └── data/                       # runtime output, not source — no database
         └── <submarine_id>/
             ├── measurements/YYYY-MM-DD.log

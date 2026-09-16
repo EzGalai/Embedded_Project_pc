@@ -9,12 +9,7 @@
 
 #include <cstdio>
 
-/* Fixed for this project's single-LNC setup — a real per-connection ID
-   isn't threaded through the live wire protocol until Phase 16's Fleet
-   Management work, per PROJECT_PLAN.md §4.17's discussion. */
-#define SUBMARINE_ID "LNC-01"
-
-void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
+void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len, const std::string &submarineId)
 {
     const uint8_t *field;
     uint16_t fieldLen;
@@ -58,14 +53,14 @@ void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len)
         Protocol_GetU16(field, &battery);
     }
 
-    DCA_StoreMeasurement(SUBMARINE_ID, timestamp, temperature, humidity, light, battery, mode);
+    DCA_StoreMeasurement(submarineId, timestamp, temperature, humidity, light, battery, mode);
 
     printf("KEEP_ALIVE: time=%s mode=%u | temp=%.1fC humidity=%u%% light=%u%% battery=%u%%\n",
        timeStr, mode, temperature / 10.0, humidity,
        (unsigned)(light * 100 / 4095), (unsigned)(battery * 100 / 3300));
 }
 
-void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
+void CcCore_PrintEventReport(const uint8_t *value, uint16_t len, const std::string &submarineId)
 {
     const uint8_t *field;
     uint16_t fieldLen;
@@ -115,13 +110,13 @@ void CcCore_PrintEventReport(const uint8_t *value, uint16_t len)
             mode = field[0];
         }
 
-        DCA_StoreEvent(SUBMARINE_ID, timestamp, eventType, eventSource, true, temperature, humidity, light, battery, mode);
+        DCA_StoreEvent(submarineId, timestamp, eventType, eventSource, true, temperature, humidity, light, battery, mode);
 
         printf(" | temp=%.1fC humidity=%u%% light=%u%% battery=%u%% mode=%u",
                temperature / 10.0, humidity, (unsigned)(light * 100 / 4095),
                (unsigned)(battery * 100 / 3300), mode);
     } else {
-        DCA_StoreEvent(SUBMARINE_ID, timestamp, eventType, eventSource, false, 0, 0, 0, 0, 0);
+        DCA_StoreEvent(submarineId, timestamp, eventType, eventSource, false, 0, 0, 0, 0, 0);
     }
     printf("\n");
 }

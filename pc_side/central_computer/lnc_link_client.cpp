@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 void FormatUnixTime(uint32_t timestamp, char *outBuf, size_t bufSize)
 {
@@ -22,7 +23,7 @@ void FormatUnixTime(uint32_t timestamp, char *outBuf, size_t bufSize)
     strftime(outBuf, bufSize, "%Y-%m-%d %H:%M:%S", &tmVal);
 }
 
-int CcCore_LncConnect(void)
+int CcCore_LncConnect(const char *host, uint16_t port)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -32,8 +33,12 @@ int CcCore_LncConnect(void)
 
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = htons(BRIDGE_TCP_PORT);
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        fprintf(stderr, "central_computer: invalid lnc_bridge host '%s'\n", host);
+        close(fd);
+        return -1;
+    }
 
     if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
         fprintf(stderr, "central_computer: connect() to lnc_bridge failed: %s\n", strerror(errno));
@@ -79,7 +84,7 @@ void CcCore_LncSend(int fd, uint8_t tag, const uint8_t *value, uint16_t valueLen
 }
 
 bool CcCore_LncRecvMessage(int fd, uint8_t *outTag, const uint8_t **outValue, uint16_t *outValueLen,
-                           uint8_t *storage, uint16_t storageCap)
+                           uint8_t *storage, uint16_t storageCap, const std::string &submarineId)
 {
     for (;;) {
         uint16_t payloadLen = CcCore_LncRecv(fd, storage, storageCap);
@@ -94,11 +99,11 @@ bool CcCore_LncRecvMessage(int fd, uint8_t *outTag, const uint8_t **outValue, ui
         }
 
         if (*outTag == PROTO_TAG_KEEP_ALIVE) {
-            CcCore_PrintKeepAlive(*outValue, *outValueLen);
+            CcCore_PrintKeepAlive(*outValue, *outValueLen, submarineId);
             continue; /* not what we're waiting for — keep listening */
         }
         if (*outTag == PROTO_TAG_EVENT_REPORT) {
-            CcCore_PrintEventReport(*outValue, *outValueLen);
+            CcCore_PrintEventReport(*outValue, *outValueLen, submarineId);
             continue; /* not what we're waiting for — keep listening */
         }
 

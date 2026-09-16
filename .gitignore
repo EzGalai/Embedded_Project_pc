@@ -38,6 +38,14 @@ pc_side/ground_station/ground_station
 # created and populated by dca.cpp at runtime, never hand-edited.
 pc_side/central_computer/data/
 
-# Add future phases' non-test binaries here as they're built (oop_fleet,
-# etc.) rather than a broad extensionless-file pattern, to avoid
-# accidentally ignoring something that should be tracked.
+# oop_fleet binary (pc_side/oop_fleet/)
+pc_side/oop_fleet/oop_fleet
+
+# DCA's generated, per-submarine runtime storage when a CombatSubmarine's
+# CentralComputer actually connects to a live LNC (pc_side/oop_fleet/) —
+# same data_collection.cpp module central_computer/ uses, run from here.
+pc_side/oop_fleet/data/
+
+# Add future phases' non-test binaries here as they're built rather than
+# a broad extensionless-file pattern, to avoid accidentally ignoring
+# something that should be tracked.

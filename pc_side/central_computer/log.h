@@ -8,21 +8,26 @@
 #define LOG_H
 
 #include <cstdint>
+#include <string>
 
 /**
  * @brief Parses one KEEP_ALIVE's fields, prints them, and persists the
  * measurement via DCA_StoreMeasurement.
  * @param value KEEP_ALIVE message's Value.
  * @param len Length of value.
+ * @param submarineId Whose telemetry this is, for DCA storage — defaults to
+ * the standalone central_computer process's single submarine.
  */
-void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len);
+void CcCore_PrintKeepAlive(const uint8_t *value, uint16_t len, const std::string &submarineId = "LNC-01");
 
 /**
  * @brief Parses one EVENT_REPORT's fields, prints them, and persists it
  * via DCA_StoreEvent.
  * @param value EVENT_REPORT message's Value.
  * @param len Length of value.
+ * @param submarineId Whose telemetry this is, for DCA storage — defaults to
+ * the standalone central_computer process's single submarine.
  */
-void CcCore_PrintEventReport(const uint8_t *value, uint16_t len);
+void CcCore_PrintEventReport(const uint8_t *value, uint16_t len, const std::string &submarineId = "LNC-01");
 
 #endif

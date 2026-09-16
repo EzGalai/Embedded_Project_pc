@@ -8,7 +8,7 @@
 
 #include <cstdio>
 
-bool CcCore_GetTime(int fd, uint32_t *outTime)
+bool CcCore_GetTime(int fd, uint32_t *outTime, const std::string &submarineId)
 {
     CcCore_LncSend(fd, PROTO_TAG_GET_TIME_REQ, nullptr, 0);
 
@@ -17,7 +17,7 @@ bool CcCore_GetTime(int fd, uint32_t *outTime)
     const uint8_t *value;
     uint16_t valueLen;
 
-    if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+    if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage), submarineId)) {
         return false;
     }
     if (tag != PROTO_TAG_GET_TIME_RESP || valueLen < 4) {
@@ -29,7 +29,7 @@ bool CcCore_GetTime(int fd, uint32_t *outTime)
     return true;
 }
 
-bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus)
+bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus, const std::string &submarineId)
 {
     uint8_t valueBuf[4];
     Protocol_PutU32(valueBuf, newTime);
@@ -40,7 +40,7 @@ bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus)
     const uint8_t *value;
     uint16_t valueLen;
 
-    if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+    if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage), submarineId)) {
         return false;
     }
     if (tag != PROTO_TAG_CONFIG_ACK || valueLen < 1) {
@@ -52,7 +52,7 @@ bool CcCore_SetRtc(int fd, uint32_t newTime, ProtoStatus_t *outStatus)
     return true;
 }
 
-bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outStatus)
+bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outStatus, const std::string &submarineId)
 {
     uint8_t fieldBuf[2];
     Protocol_PutU16(fieldBuf, newMinMv);
@@ -67,7 +67,7 @@ bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outSt
     uint8_t tag;
     const uint8_t *respValue;
     uint16_t respValueLen;
-    if (!CcCore_LncRecvMessage(fd, &tag, &respValue, &respValueLen, storage, sizeof(storage))) {
+    if (!CcCore_LncRecvMessage(fd, &tag, &respValue, &respValueLen, storage, sizeof(storage), submarineId)) {
         return false;
     }
     if (tag != PROTO_TAG_CONFIG_ACK || respValueLen < 1) {
@@ -79,7 +79,7 @@ bool CcCore_SetBatteryWarningMin(int fd, uint16_t newMinMv, ProtoStatus_t *outSt
     return true;
 }
 
-void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime)
+void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime, const std::string &submarineId)
 {
     printf("GET_MEASUREMENTS(%u, %u):\n", (unsigned)startTime, (unsigned)endTime);
 
@@ -117,7 +117,7 @@ void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime)
         const uint8_t *value;
         uint16_t valueLen;
 
-        if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+        if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage), submarineId)) {
             fprintf(stderr, "central_computer: GET_MEASUREMENTS_RESP not received\n");
             return;
         }
@@ -192,7 +192,7 @@ void CcCore_GetMeasurements(int fd, uint32_t startTime, uint32_t endTime)
     }
 }
 
-void CcCore_GetEvents(int fd, uint32_t startTime, uint32_t endTime)
+void CcCore_GetEvents(int fd, uint32_t startTime, uint32_t endTime, const std::string &submarineId)
 {
     printf("GET_EVENTS(%u, %u):\n", (unsigned)startTime, (unsigned)endTime);
 
@@ -230,7 +230,7 @@ void CcCore_GetEvents(int fd, uint32_t startTime, uint32_t endTime)
         const uint8_t *value;
         uint16_t valueLen;
 
-        if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage))) {
+        if (!CcCore_LncRecvMessage(fd, &tag, &value, &valueLen, storage, sizeof(storage), submarineId)) {
             fprintf(stderr, "central_computer: GET_EVENTS_RESP not received\n");
             return;
         }
